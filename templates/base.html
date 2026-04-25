@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}TalentScout AI{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            teal: { 50:'#f0fdfa',100:'#ccfbf1',200:'#99f6e4',500:'#14b8a6',600:'#0d9488',700:'#0f766e',800:'#115e59',900:'#134e4a' },
+          },
+          fontFamily: {
+            sans: ['Inter','sans-serif'],
+            display: ['Space Grotesk','sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root { --brand:#01696f; --brand-hover:#0c4e54; --brand-light:#e8f4f3; }
+    body { font-family:'Inter',sans-serif; background:#f7f6f2; color:#28251d; }
+
+    /* Buttons */
+    .btn-primary {
+      background:var(--brand); color:#fff; border-radius:0.5rem;
+      padding:0.5rem 1.25rem; font-weight:500; font-size:0.875rem;
+      transition:background 180ms; display:inline-block; text-align:center;
+    }
+    .btn-primary:hover { background:var(--brand-hover); }
+    .btn-primary:disabled { opacity:0.6; cursor:not-allowed; }
+    .btn-outline {
+      border:1.5px solid var(--brand); color:var(--brand); border-radius:0.5rem;
+      padding:0.5rem 1.25rem; font-weight:500; font-size:0.875rem;
+      transition:all 180ms; display:inline-block; text-align:center; background:#fff;
+    }
+    .btn-outline:hover { background:var(--brand); color:#fff; }
+
+    /* Score badges */
+    .badge-green  { background:#d4dfcc; color:#1e3f0a; padding:2px 10px; border-radius:9999px; font-size:0.75rem; font-weight:600; display:inline-block; }
+    .badge-yellow { background:#e9e0c6; color:#8a5b00; padding:2px 10px; border-radius:9999px; font-size:0.75rem; font-weight:600; display:inline-block; }
+    .badge-red    { background:#e0ced7; color:#561740; padding:2px 10px; border-radius:9999px; font-size:0.75rem; font-weight:600; display:inline-block; }
+
+    /* Skill chips */
+    .chip-match { background:#d4dfcc; color:#1e3f0a; padding:2px 8px; border-radius:4px; font-size:0.7rem; font-weight:500; display:inline-block; }
+    .chip-gap   { background:#e0ced7; color:#561740; padding:2px 8px; border-radius:4px; font-size:0.7rem; font-weight:500; display:inline-block; }
+
+    /* Score ring */
+    .score-ring {
+      width:52px; height:52px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      font-weight:700; font-size:0.9rem; font-family:'Space Grotesk',sans-serif;
+      flex-shrink:0;
+    }
+    .score-ring-green  { background:#d4dfcc; color:#1e3f0a; }
+    .score-ring-yellow { background:#e9e0c6; color:#8a5b00; }
+    .score-ring-red    { background:#e0ced7; color:#561740; }
+
+    /* Chat bubbles */
+    .chat-bubble-recruiter { background:var(--brand-light); border-radius:0 12px 12px 12px; }
+    .chat-bubble-candidate { background:#fff; border:1px solid #dcd9d5; border-radius:12px 0 12px 12px; }
+
+    /* Progress bar */
+    .progress-bar { height:6px; border-radius:9999px; background:#e6e4df; overflow:hidden; }
+    .progress-bar-fill { height:100%; border-radius:9999px; background:var(--brand); transition:width 0.6s ease; }
+
+    /* Card */
+    .card {
+      background:#fff; border:1px solid #dcd9d5; border-radius:0.75rem;
+      padding:1.25rem; box-shadow:0 1px 3px rgba(40,37,29,0.06);
+      transition:box-shadow 180ms;
+    }
+    .card:hover { box-shadow:0 4px 16px rgba(40,37,29,0.1); }
+
+    /* Spinner */
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .spinner { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.7s linear infinite; }
+
+    /* Bounce dots */
+    @keyframes bounce-dot { 0%,80%,100% { transform:translateY(0); } 40% { transform:translateY(-6px); } }
+    .bounce-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--brand); animation:bounce-dot 1.2s ease-in-out infinite; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+<!-- NAV -->
+<nav style="background:#fff; border-bottom:1px solid #dcd9d5; position:sticky; top:0; z-index:50;">
+  <div style="max-width:1200px; margin:0 auto; padding:0 1rem; display:flex; align-items:center; justify-content:space-between; height:56px;">
+
+    <a href="/" style="display:flex; align-items:center; gap:8px; font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:1.1rem; color:var(--brand); text-decoration:none;">
+      <!-- Logo SVG -->
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-label="TalentScout logo">
+        <circle cx="14" cy="14" r="13" stroke="currentColor" stroke-width="2"/>
+        <circle cx="14" cy="11" r="3" fill="currentColor" opacity="0.3"/>
+        <circle cx="14" cy="11" r="1.8" fill="currentColor"/>
+        <path d="M7 23c0-3.866 3.134-7 7-7s7 3.134 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="21" cy="7" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="22.8" y1="9" x2="24.5" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      TalentScout AI
+    </a>
+
+    <div style="display:flex; align-items:center; gap:1.5rem; font-size:0.875rem;">
+      {% if request.url.path != "/" %}
+      <a href="/candidates" style="color:#4b5563; text-decoration:none; font-weight:500;" onmouseover="this.style.color='#111'" onmouseout="this.style.color='#4b5563'">Candidates</a>
+      <a href="/shortlist" style="color:#4b5563; text-decoration:none; font-weight:500;" onmouseover="this.style.color='#111'" onmouseout="this.style.color='#4b5563'">Shortlist</a>
+      {% endif %}
+      <a href="/reset" style="color:#9ca3af; text-decoration:none; font-size:0.75rem;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#9ca3af'">↺ Reset</a>
+    </div>
+  </div>
+</nav>
+
+<main style="max-width:1200px; margin:0 auto; padding:2rem 1rem;">
+  {% block content %}{% endblock %}
+</main>
+
+<footer style="text-align:center; font-size:0.75rem; color:#9ca3af; padding:2rem 0 3rem;">
+  TalentScout AI &nbsp;·&nbsp; FastAPI + Ollama &nbsp;·&nbsp; Prototype v1.0
+</footer>
+</body>
+</html>
