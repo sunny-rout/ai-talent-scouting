@@ -3,15 +3,66 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from contextlib import asynccontextmanager
 
 from app.config import LLM_PROVIDER, OLLAMA_MODEL, VERTEX_MODEL
 from app.conversation import simulate_conversation
 from app.jd_parser import parse_jd
 from app.llm import get_provider
 from app.matcher import rank_candidates
-from app.models import Candidate, ShortlistEntry
+from app.models import Candidate, ShortlistEntry, ParsedJD, MatchResult
+from app.db import get_db
 
-app = FastAPI(title="TalentScout AI", version="1.0.0")
+db = get_db("sqlite")
+
+STATE = dict(jd_text=None, parsed_jd=None, match_results=[],
+             conversations={}, shortlist=[], provider=LLM_PROVIDER, model=OLLAMA_MODEL)
+
+@asynccontextmanager
+async def lifespan(app):
+    # ── STARTUP ──────────────────────────────────────────────────
+    db.init()
+
+    # Restore LLM settings
+    s = db.load_settings()
+    STATE["llm_provider"] = s["llm_provider"]
+    STATE["llm_model"]    = s["llm_model"]
+
+    # Restore parsed JD
+    jd_raw = db.load_parsed_jd()
+    if jd_raw:
+        try:
+            STATE["parsed_jd"] = ParsedJD(**jd_raw)
+        except Exception as e:
+            print(f"[DB] JD restore failed: {e}")
+
+    # Restore match results
+    restored_matches = []
+    for r in db.load_match_results():
+        try:
+            r["candidate"] = Candidate(**r["candidate"])
+            restored_matches.append(MatchResult(**r))
+        except Exception as e:
+            print(f"[DB] Match result restore failed: {e}")
+    if restored_matches:
+        STATE["match_results"] = restored_matches
+
+    # Restore conversations
+    STATE["conversations"] = db.load_conversations()
+
+    print(
+        f"[DB] Restored — "
+        f"JD: {bool(STATE.get('parsed_jd'))}, "
+        f"matches: {len(STATE.get('match_results') or [])}, "
+        f"convs: {len(STATE.get('conversations') or {})}"
+    )
+
+    yield   # ← app is live here
+
+    # ── SHUTDOWN ──────────────────────────────────────────────────
+    print("[DB] Shutdown.")
+
+app = FastAPI(title="TalentScout AI", version="1.0.0", lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -19,11 +70,22 @@ with open("data/candidates.json") as f:
     CANDIDATE_POOL = [Candidate(**c) for c in json.load(f)]
 CANDIDATE_MAP = {c.id: c for c in CANDIDATE_POOL}
 
-STATE = dict(jd_text=None, parsed_jd=None, match_results=[],
-             conversations={}, shortlist=[], provider=LLM_PROVIDER, model=OLLAMA_MODEL)
 
 def _llm():      return get_provider(STATE["provider"], STATE["model"])
 def _color(s):   return "green" if s >= 75 else ("yellow" if s >= 50 else "red")
+
+def persist_state():
+    try:
+        if STATE.get("parsed_jd"):
+            db.save_parsed_jd(STATE["parsed_jd"])
+        if STATE.get("match_results"):
+            db.save_match_results(STATE["match_results"])
+        db.save_settings(
+            STATE.get("llm_provider", "ollama"),
+            STATE.get("llm_model",    "llama3"),
+        )
+    except Exception as e:
+        print(f"[DB] persist_state error: {e}")
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
