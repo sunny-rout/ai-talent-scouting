@@ -134,3 +134,11 @@ async def export_csv():
 async def reset():
     STATE.update(jd_text=None,parsed_jd=None,match_results=[],conversations={},shortlist=[])
     return RedirectResponse("/")
+
+@app.get("/architecture", response_class=HTMLResponse)
+async def architecture(request: Request):
+    """Interactive architecture diagram page."""
+    return templates.TemplateResponse(
+        "architecture.html",
+        {"request": request}
+    )
