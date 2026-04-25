@@ -179,3 +179,38 @@ async def generate_email_route(candidate_id: str):
         interest_summary=interest_summary,
     )
     return {"subject": email["subject"], "body": email["body"]}
+
+from app.interview_questions import generate_questions
+@app.post("/generate-questions/{candidate_id}")
+async def generate_questions_route(candidate_id: str):
+    """Generate personalised interview questions via LLM."""
+    if not STATE.get("parsed_jd"):
+        raise HTTPException(status_code=400, detail="No JD parsed yet. Parse a JD first.")
+    if not STATE.get("match_results"):
+        raise HTTPException(status_code=400, detail="No match results found. Parse a JD first.")
+
+    match_result = next((r for r in STATE["match_results"] if r.candidate.id == candidate_id), None)
+    candidate    = match_result.candidate 
+    if not candidate or not match_result:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    interest_score   = None
+    interest_summary = None
+    conv = STATE.get("conversations", {}).get(candidate_id)
+    if conv:
+        interest_score   = conv.interest_analysis.total
+        interest_summary = conv.interest_analysis.summary
+
+    provider = STATE.get("llm_provider", "ollama")
+    model    = STATE.get("llm_model",    "llama3")
+    llm      = get_provider(provider, model)
+
+    questions = generate_questions(
+        candidate=candidate,
+        jd=STATE["parsed_jd"],
+        match_result=match_result,
+        llm=llm,
+        interest_score=interest_score,
+        interest_summary=interest_summary,
+    )
+    return questions

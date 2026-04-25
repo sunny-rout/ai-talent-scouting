@@ -143,7 +143,16 @@
       </a>
       {% endif %}
       <!-- ✉️ Email button — goes to engage page; floating button auto-visible there -->
-      <a href="/engage/{{ c.id }}?email=1" title="Draft outreach email on candidate page"
+      <a href="/engage/{{ c.id }}?questions=1" title="Generate interview questions"
+        style="flex-shrink:0; width:34px; height:34px; border-radius:0.5rem;
+          display:inline-flex; align-items:center; justify-content:center;
+          border:1.5px solid #e5e7eb; background:#fff; font-size:0.875rem;
+          text-decoration:none; transition:all 180ms; color:#6b7280;"
+        onmouseover="this.style.borderColor='var(--brand)';this.style.background='var(--brand-light)'"
+        onmouseout="this.style.borderColor='#e5e7eb';this.style.background='#fff'">
+        🎯
+      </a>
+      <a href="/engage/{{ c.id }}?email=1" title="Draft outreach email"
         style="flex-shrink:0; width:34px; height:34px; border-radius:0.5rem;
           display:inline-flex; align-items:center; justify-content:center;
           border:1.5px solid #e5e7eb; background:#fff; font-size:0.875rem;
