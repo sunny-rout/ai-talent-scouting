@@ -130,7 +130,7 @@
     </p>
 
     <!-- Action Buttons -->
-    <div style="display:flex; gap:0.5rem; margin-top:auto; padding-top:4px;">
+    <div style="display:flex; gap:0.5rem; margin-top:auto; padding-top:4px; align-items:center;">
       {% if c.id in conv_ids %}
       <a href="/engage/{{ c.id }}" class="btn-primary"
         style="flex:1; padding:0.45rem; font-size:0.78rem; border:none; cursor:pointer; text-align:center; text-decoration:none;">
@@ -142,9 +142,19 @@
         💬 Engage
       </a>
       {% endif %}
+      <!-- ✉️ Email button — goes to engage page; floating button auto-visible there -->
+      <a href="/engage/{{ c.id }}?email=1" title="Draft outreach email on candidate page"
+        style="flex-shrink:0; width:34px; height:34px; border-radius:0.5rem;
+          display:inline-flex; align-items:center; justify-content:center;
+          border:1.5px solid #e5e7eb; background:#fff; font-size:0.875rem;
+          text-decoration:none; transition:all 180ms; color:#6b7280;"
+        onmouseover="this.style.borderColor='var(--brand)';this.style.background='var(--brand-light)'"
+        onmouseout="this.style.borderColor='#e5e7eb';this.style.background='#fff'">
+        ✉️
+      </a>
       {% if c.id in shortlist_ids %}
-      <span style="flex:1; text-align:center; font-size:0.78rem; padding:0.45rem; background:#f0fdf4; color:#166534; border-radius:0.5rem; border:1px solid #bbf7d0; font-weight:500;">
-        ✓ Shortlisted
+      <span style="font-size:0.72rem; padding:0.3rem 0.5rem; background:#f0fdf4; color:#166534; border-radius:0.5rem; border:1px solid #bbf7d0; font-weight:500; white-space:nowrap;">
+        ✓ Listed
       </span>
       {% endif %}
     </div>

@@ -196,11 +196,250 @@
       </div>
       {% endif %}
     </div>
-
   </div><!-- end right panel -->
 </div>
 
+<!-- ══════════════════════════════════════════ -->
+<!-- A3 — EMAIL DRAFT MODAL                   -->
+<!-- ══════════════════════════════════════════ -->
+
+<!-- Floating ✉️ button -->
+<button onclick="openEmailModal('{{ candidate.id }}')"
+  title="Generate personalised outreach email"
+  style="
+    position:fixed; bottom:1.75rem; right:1.75rem; z-index:100;
+    width:52px; height:52px; border-radius:50%;
+    background:var(--brand); color:#fff; border:none; cursor:pointer;
+    box-shadow:0 4px 16px rgba(1,105,111,0.35);
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.35rem; transition:transform 200ms, box-shadow 200ms;"
+  onmouseover="this.style.transform='scale(1.1)';this.style.boxShadow='0 8px 24px rgba(1,105,111,0.45)'"
+  onmouseout="this.style.transform='scale(1)';this.style.boxShadow='0 4px 16px rgba(1,105,111,0.35)'">
+  ✉️ Open Mail
+</button>
+
+<!-- Modal backdrop -->
+<div id="emailModal"
+  onclick="if(event.target===this)closeEmailModal()"
+  style="display:none; position:fixed; inset:0; z-index:200;
+    background:rgba(0,0,0,0.45); backdrop-filter:blur(4px);
+    align-items:center; justify-content:center; padding:1rem;">
+  <div style="background:#fff; border-radius:1rem; width:100%; max-width:600px;
+    max-height:90vh; overflow-y:auto;
+    box-shadow:0 24px 64px rgba(0,0,0,0.2);
+    animation:slideUpModal 200ms ease-out;">
+
+    <!-- Header -->
+    <div style="padding:1.25rem 1.5rem; border-bottom:1px solid #e5e7eb;
+      display:flex; align-items:center; justify-content:space-between;
+      position:sticky; top:0; background:#fff; z-index:1;
+      border-radius:1rem 1rem 0 0;">
+      <div style="display:flex; align-items:center; gap:0.625rem;">
+        <span style="font-size:1.2rem;">✉️</span>
+        <div>
+          <h3 style="font-family:'Space Grotesk',sans-serif; font-size:1rem;
+            font-weight:600; color:#111; margin:0;">Outreach Email Draft</h3>
+          <p style="font-size:0.72rem; color:#9ca3af; margin:0;">
+            AI-generated · personalised for {{ candidate.name }}</p>
+        </div>
+      </div>
+      <button onclick="closeEmailModal()"
+        style="width:32px;height:32px;border-radius:50%;background:#f3f4f6;
+          border:none;cursor:pointer;display:flex;align-items:center;
+          justify-content:center;font-size:1rem;color:#6b7280;"
+        onmouseover="this.style.background='#e5e7eb'"
+        onmouseout="this.style.background='#f3f4f6'">✕</button>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:1.5rem;">
+
+      <!-- Loading -->
+      <div id="emailLoading" style="text-align:center; padding:3rem 1rem;">
+        <div style="font-size:2rem; margin-bottom:0.75rem;">✍️</div>
+        <p style="font-weight:600;color:#374151;margin:0 0 4px;">Writing your email…</p>
+        <p style="font-size:0.8rem;color:#9ca3af;margin:0 0 1.25rem;">
+          {% if conversation %}Using conversation context to personalise
+          {% else %}Crafting based on match score and skills{% endif %}
+        </p>
+        <div style="display:flex;justify-content:center;gap:6px;">
+          <div class="bounce-dot" style="animation-delay:0ms;"></div>
+          <div class="bounce-dot" style="animation-delay:200ms;"></div>
+          <div class="bounce-dot" style="animation-delay:400ms;"></div>
+        </div>
+      </div>
+
+      <!-- Email content -->
+      <div id="emailContent" style="display:none;">
+
+        <!-- Subject -->
+        <div style="margin-bottom:1rem;">
+          <label style="font-size:0.72rem;font-weight:600;text-transform:uppercase;
+            letter-spacing:0.05em;color:#9ca3af;display:block;margin-bottom:4px;">
+            Subject Line
+          </label>
+          <div style="display:flex;align-items:center;gap:0.5rem;
+            background:#f9fafb;border:1px solid #e5e7eb;border-radius:0.5rem;
+            padding:0.625rem 0.75rem;">
+            <span id="emailSubject" style="flex:1;font-size:0.875rem;font-weight:500;color:#111;"></span>
+            <button onclick="copySingle('emailSubject','subjectCopied')"
+              style="flex-shrink:0;font-size:0.72rem;padding:3px 10px;
+                border-radius:9999px;border:1px solid #e5e7eb;background:#fff;
+                color:#6b7280;cursor:pointer;white-space:nowrap;transition:all 180ms;"
+              onmouseover="this.style.borderColor='var(--brand)';this.style.color='var(--brand)'"
+              onmouseout="this.style.borderColor='#e5e7eb';this.style.color='#6b7280'">
+              <span id="subjectCopied">Copy</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Body -->
+        <div style="margin-bottom:1rem;">
+          <label style="font-size:0.72rem;font-weight:600;text-transform:uppercase;
+            letter-spacing:0.05em;color:#9ca3af;display:block;margin-bottom:4px;">
+            Email Body
+          </label>
+          <div style="background:#f9fafb;border:1px solid #e5e7eb;
+            border-radius:0.5rem;padding:1rem;">
+            <pre id="emailBody" style="font-family:inherit;font-size:0.875rem;
+              color:#374151;white-space:pre-wrap;line-height:1.7;margin:0;
+              word-break:break-word;"></pre>
+          </div>
+        </div>
+
+        <!-- Context hint (only if conversation ran) -->
+        {% if conversation %}
+        <div style="background:#e8f4f3;border-radius:0.5rem;padding:0.625rem 0.875rem;
+          font-size:0.75rem;color:#0f766e;margin-bottom:1rem;
+          display:flex;align-items:flex-start;gap:6px;">
+          <span style="flex-shrink:0;">💡</span>
+          <span>Email is personalised using the conversation context
+            (Interest Score: <strong>{{ conversation.interest_analysis.total|int if conversation else '–' }}%</strong>).</span>
+        </div>
+        {% endif %}
+
+        <!-- Actions -->
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+          <button onclick="copyFullEmail()" class="btn-primary"
+            style="flex:1;min-width:130px;padding:0.625rem;border:none;
+              cursor:pointer;font-size:0.875rem;">
+            📋 Copy Full Email
+          </button>
+          <button onclick="regenerateEmail('{{ candidate.id }}')" class="btn-outline"
+            style="flex:1;min-width:130px;padding:0.625rem;
+              font-size:0.875rem;cursor:pointer;">
+            🔄 Regenerate
+          </button>
+          <button onclick="closeEmailModal()"
+            style="flex:1;min-width:90px;padding:0.625rem;font-size:0.875rem;
+              background:#f3f4f6;border:none;border-radius:0.5rem;
+              cursor:pointer;color:#374151;font-weight:500;transition:background 180ms;"
+            onmouseover="this.style.background='#e5e7eb'"
+            onmouseout="this.style.background='#f3f4f6'">Close</button>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div id="emailError" style="display:none;text-align:center;padding:2rem 1rem;">
+        <div style="font-size:2rem;margin-bottom:0.5rem;">⚠️</div>
+        <p style="font-weight:600;color:#374151;margin:0 0 4px;">Could not generate email</p>
+        <p id="emailErrorMsg" style="font-size:0.8rem;color:#9ca3af;margin:0 0 1rem;"></p>
+        <button onclick="regenerateEmail('{{ candidate.id }}')" class="btn-primary"
+          style="border:none;cursor:pointer;padding:0.5rem 1.25rem;">Try Again</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Copy toast -->
+<div id="copyToast"
+  style="position:fixed;bottom:5rem;right:1.75rem;z-index:300;
+    background:#111;color:#fff;font-size:0.8rem;font-weight:500;
+    padding:0.625rem 1rem;border-radius:0.5rem;pointer-events:none;
+    opacity:0;transform:translateY(8px);transition:all 200ms;">
+  ✓ Copied!
+</div>
+
+<style>
+@keyframes slideUpModal {
+  from { opacity:0; transform:translateY(16px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+</style>
+
 <script>
+window.addEventListener('DOMContentLoaded', function () {
+const params = new URLSearchParams(window.location.search);
+if (params.get('email') === '1') {
+  /* Small delay so the page fully renders first */
+  setTimeout(function () {
+    openEmailModal('{{ candidate.id }}');
+  }, 500);
+  /* Clean URL without reloading — removes ?email=1 from address bar */
+  history.replaceState(null, '', window.location.pathname);
+}
+});
+let _emailData = null;
+
+function openEmailModal(id) {
+  document.getElementById('emailModal').style.display = 'flex';
+  _showState('loading');
+  fetch('/generate-email/' + id, { method:'POST' })
+    .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail||'Error'); }))
+    .then(data => { _emailData = data; _renderEmail(data); })
+    .catch(e  => { _showState('error'); document.getElementById('emailErrorMsg').textContent = e.message; });
+}
+
+function closeEmailModal() {
+  document.getElementById('emailModal').style.display = 'none';
+}
+
+function regenerateEmail(id) {
+  _emailData = null;
+  _showState('loading');
+  fetch('/generate-email/' + id, { method:'POST' })
+    .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail||'Error'); }))
+    .then(data => { _emailData = data; _renderEmail(data); })
+    .catch(e  => { _showState('error'); document.getElementById('emailErrorMsg').textContent = e.message; });
+}
+
+function _renderEmail(data) {
+  document.getElementById('emailSubject').textContent = data.subject;
+  document.getElementById('emailBody').textContent    = data.body;
+  _showState('content');
+}
+
+function _showState(state) {
+  document.getElementById('emailLoading').style.display = state==='loading'  ? '' : 'none';
+  document.getElementById('emailContent').style.display = state==='content'  ? '' : 'none';
+  document.getElementById('emailError').style.display   = state==='error'    ? '' : 'none';
+}
+
+function copySingle(elId, feedbackId) {
+  navigator.clipboard.writeText(document.getElementById(elId).textContent)
+    .then(() => {
+      const s = document.getElementById(feedbackId);
+      if (s) { s.textContent='✓ Copied'; setTimeout(()=>s.textContent='Copy', 1800); }
+      _toast('Subject copied!');
+    });
+}
+
+function copyFullEmail() {
+  if (!_emailData) return;
+  navigator.clipboard.writeText('Subject: '+_emailData.subject+'\n\n'+_emailData.body)
+    .then(() => _toast('Full email copied!'));
+}
+
+function _toast(msg) {
+  const t = document.getElementById('copyToast');
+  t.textContent = '✓ ' + msg;
+  t.style.opacity='1'; t.style.transform='translateY(0)';
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateY(8px)'; }, 2200);
+}
+
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeEmailModal(); });
+
 async function runConversation() {
   const runBtn = document.getElementById('runBtn');
   const emptyState = document.getElementById('emptyState');
