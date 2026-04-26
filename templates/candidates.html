@@ -72,8 +72,21 @@
   {% for result in results %}
   {% set c = result.candidate %}
   {% set color = score_color(result.match_score) %}
-  <div class="card" data-type="{{ c.id[:2] }}"
-    style="display:flex; flex-direction:column; gap:0.875rem;">
+  <div class="card candidate-card" data-type="{{ c.id[:2] }}"
+    data-id="{{ c.id }}"
+    data-candidate='{"id":"{{ c.id }}","name":"{{ c.name|replace("'","\'") }}","title":"{{ c.title|replace("'","\'") }}","company":"{{ c.company|replace("'","\'") }}","location":"{{ c.location }}","years":{{ c.years_experience }},"ctc":"{{ c.expected_ctc }}","notice":"{{ c.notice_period }}","skills":{{ c.skills|tojson }},"match":{{ result.match_score }},"interest":{{ result.interest_score if result.interest_score else 0 }},"breakdown":{"req_skills":{{ result.score_breakdown.required_skills }},"pref_skills":{{ result.score_breakdown.preferred_skills }},"experience":{{ result.score_breakdown.experience }},"role_fit":{{ result.score_breakdown.role_fit }},"education":{{ result.score_breakdown.education }}},"skill_matches":{{ result.skill_matches|tojson }},"skill_gaps":{{ result.skill_gaps|tojson }}}' 
+    style="display:flex; flex-direction:column; gap:0.875rem; position:relative;">
+
+    <!-- Compare checkbox -->
+    <label class="compare-checkbox-wrap" title="Add to comparison">
+      <input type="checkbox" class="compare-cb" data-id="{{ c.id }}"
+        onchange="toggleCompare(this)" style="display:none;">
+      <span class="compare-cb-box" aria-label="Compare {{ c.name }}">
+        <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+          <path d="M1 4.5L4 7.5L10 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+    </label>
 
     <!-- Header -->
     <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem;">
@@ -188,4 +201,398 @@ function filterCards(type) {
   });
 }
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════
+     D1 — CANDIDATE COMPARISON  (CSS + Modal + Tray + JS)
+     ═══════════════════════════════════════════════════════════ -->
+<style>
+/* Compare checkbox */
+.compare-checkbox-wrap {
+  position:absolute; top:0.65rem; right:0.65rem;
+  cursor:pointer; z-index:2;
+  opacity:0; transition:opacity 150ms;
+}
+.candidate-card:hover .compare-checkbox-wrap,
+.compare-checkbox-wrap:has(.compare-cb:checked) { opacity:1; }
+.compare-cb-box {
+  width:22px; height:22px; border-radius:6px;
+  border:2px solid #d1d5db; background:#fff;
+  display:flex; align-items:center; justify-content:center;
+  transition:all 150ms;
+}
+.compare-cb:checked + .compare-cb-box {
+  background:var(--brand); border-color:var(--brand);
+}
+.candidate-card.in-compare {
+  outline:2px solid var(--brand);
+  outline-offset:2px;
+}
+
+/* Sticky selection tray */
+#compare-tray {
+  position:fixed; bottom:0; left:0; right:0; z-index:400;
+  background:#fff; border-top:1px solid #dcd9d5;
+  box-shadow:0 -4px 24px rgba(40,37,29,0.1);
+  padding:0.75rem 1.5rem;
+  display:flex; align-items:center; justify-content:space-between; gap:1rem;
+  transform:translateY(100%);
+  transition:transform 250ms cubic-bezier(0.16,1,0.3,1);
+}
+#compare-tray.visible { transform:translateY(0); }
+.tray-slot {
+  width:44px; height:44px; border-radius:50%;
+  border:2px dashed #d1d5db; background:#f9f8f5;
+  display:flex; align-items:center; justify-content:center;
+  font-size:0.7rem; color:#9ca3af; overflow:hidden;
+  transition:all 180ms; flex-shrink:0;
+}
+.tray-slot.filled {
+  border:2px solid var(--brand); background:var(--brand-light);
+  font-size:0.65rem; color:var(--brand); font-weight:600;
+  text-align:center; padding:2px; line-height:1.2;
+}
+.tray-slots { display:flex; gap:0.5rem; align-items:center; }
+.tray-hint  { font-size:0.8rem; color:#6b7280; flex:1; }
+.tray-hint strong { color:#111; }
+
+/* Modal backdrop */
+#compare-modal {
+  position:fixed; inset:0; z-index:500;
+  background:rgba(40,37,29,0.55);
+  backdrop-filter:blur(3px);
+  display:flex; align-items:center; justify-content:center;
+  padding:1rem;
+  opacity:0; pointer-events:none;
+  transition:opacity 200ms;
+}
+#compare-modal.open {
+  opacity:1; pointer-events:all;
+}
+#compare-modal-inner {
+  background:#fff; border-radius:1rem;
+  box-shadow:0 24px 80px rgba(40,37,29,0.2);
+  width:100%; max-width:960px; max-height:90vh;
+  overflow-y:auto; display:flex; flex-direction:column;
+  transform:translateY(16px) scale(0.98);
+  transition:transform 220ms cubic-bezier(0.16,1,0.3,1);
+}
+#compare-modal.open #compare-modal-inner {
+  transform:translateY(0) scale(1);
+}
+.modal-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:1.25rem 1.5rem; border-bottom:1px solid #dcd9d5;
+  position:sticky; top:0; background:#fff; z-index:1;
+}
+.modal-title {
+  font-family:'Space Grotesk',sans-serif;
+  font-size:1.1rem; font-weight:700; color:#111;
+}
+.modal-close {
+  width:32px; height:32px; border-radius:50%;
+  border:1px solid #e5e7eb; background:#f9f8f5;
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; color:#6b7280; font-size:1rem;
+  transition:all 150ms;
+}
+.modal-close:hover { background:#f3f4f6; color:#111; }
+
+/* Comparison table */
+.cmp-table {
+  width:100%; border-collapse:collapse;
+  font-size:0.82rem;
+}
+.cmp-table th {
+  background:#f9f8f5; padding:1rem 1.25rem;
+  text-align:left; font-weight:600;
+  border-bottom:2px solid #dcd9d5;
+  font-family:'Space Grotesk',sans-serif;
+  font-size:0.875rem; color:#111;
+  position:sticky; top:0;
+}
+.cmp-table th:first-child {
+  color:#9ca3af; font-weight:500;
+  font-family:'Inter',sans-serif; font-size:0.75rem;
+  text-transform:uppercase; letter-spacing:0.05em;
+  width:140px;
+}
+.cmp-table td {
+  padding:0.75rem 1.25rem;
+  border-bottom:1px solid #f3f4f6;
+  color:#374151; vertical-align:middle;
+}
+.cmp-table td:first-child {
+  color:#6b7280; font-size:0.78rem;
+  background:#fafaf9; font-weight:500;
+}
+.cmp-table tr:last-child td { border-bottom:none; }
+.cmp-table tr:hover td:not(:first-child) { background:#fafff9; }
+
+/* Best value highlight */
+.cmp-best {
+  background:color-mix(in oklab, var(--brand) 8%, #fff) !important;
+  font-weight:700 !important; color:var(--brand) !important;
+  border-radius:6px;
+}
+
+/* Score bar inline */
+.cmp-bar-wrap { display:flex; align-items:center; gap:8px; }
+.cmp-bar { height:6px; border-radius:9999px; background:#e6e4df; flex:1; overflow:hidden; }
+.cmp-bar-fill { height:100%; border-radius:9999px; background:var(--brand); }
+
+/* Skill chips inside table */
+.cmp-chip-match { background:#d4dfcc; color:#1e3f0a; padding:1px 7px; border-radius:4px; font-size:0.68rem; font-weight:500; display:inline-block; margin:2px 2px 2px 0; }
+.cmp-chip-gap   { background:#e0ced7; color:#561740; padding:1px 7px; border-radius:4px; font-size:0.68rem; font-weight:500; display:inline-block; margin:2px 2px 2px 0; }
+</style>
+
+<!-- Sticky tray -->
+<div id="compare-tray" role="status" aria-live="polite">
+  <div class="tray-slots">
+    <div class="tray-slot" id="tray-slot-0">1</div>
+    <div class="tray-slot" id="tray-slot-1">2</div>
+    <div class="tray-slot" id="tray-slot-2">3</div>
+  </div>
+  <p class="tray-hint" id="tray-hint">Select <strong>1 more</strong> candidate to compare</p>
+  <div style="display:flex; gap:0.5rem;">
+    <button onclick="clearCompare()"
+      style="font-size:0.78rem; padding:0.4rem 0.875rem; border-radius:0.5rem;
+             border:1.5px solid #e5e7eb; background:#fff; color:#6b7280; cursor:pointer;">
+      Clear
+    </button>
+    <button id="compare-btn" onclick="openCompareModal()"
+      class="btn-primary" disabled
+      style="font-size:0.78rem; padding:0.4rem 1rem; border:none; cursor:pointer; opacity:0.45;">
+      Compare ▶
+    </button>
+  </div>
+</div>
+
+<!-- Comparison modal -->
+<div id="compare-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title-text"
+  onclick="if(event.target===this) closeCompareModal()">
+  <div id="compare-modal-inner">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title-text">Candidate Comparison</span>
+      <button class="modal-close" onclick="closeCompareModal()" aria-label="Close comparison">✕</button>
+    </div>
+    <div id="compare-modal-body" style="padding:1.25rem 1.5rem;"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// D1 — CANDIDATE COMPARISON
+// State: compareList = array of candidate data objects (max 3)
+// ═══════════════════════════════════════════════════════════════════════
+let compareList = [];
+
+// ── Toggle a candidate in/out of compare list ───────────────────────
+function toggleCompare(checkbox) {
+  const id   = checkbox.dataset.id;
+  const card = document.querySelector('.candidate-card[data-id="' + id + '"]');
+  const idx  = compareList.findIndex(c => c.id === id);
+
+  if (checkbox.checked) {
+    if (compareList.length >= 3) {
+      checkbox.checked = false;
+      if (window.toastWarn) window.toastWarn('Max 3 candidates', 'Remove one before adding another.');
+      else alert('You can compare up to 3 candidates. Remove one first.');
+      return;
+    }
+    let data;
+    try { data = JSON.parse(card.dataset.candidate); } catch(e) { return; }
+    compareList.push(data);
+    card.classList.add('in-compare');
+  } else {
+    if (idx > -1) compareList.splice(idx, 1);
+    card.classList.remove('in-compare');
+  }
+  updateTray();
+}
+
+// ── Update sticky tray ───────────────────────────────────────────────
+function updateTray() {
+  const tray = document.getElementById('compare-tray');
+  const btn  = document.getElementById('compare-btn');
+  const hint = document.getElementById('tray-hint');
+  const n    = compareList.length;
+
+  // Slot avatars
+  for (let i = 0; i < 3; i++) {
+    const slot = document.getElementById('tray-slot-' + i);
+    if (compareList[i]) {
+      const initials = compareList[i].name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+      slot.textContent = initials;
+      slot.classList.add('filled');
+      slot.title = compareList[i].name;
+    } else {
+      slot.textContent = (i + 1);
+      slot.classList.remove('filled');
+      slot.title = '';
+    }
+  }
+
+  // Hint text
+  if (n === 0)      { hint.innerHTML = 'Select <strong>2 candidates</strong> to compare'; }
+  else if (n === 1) { hint.innerHTML = 'Select <strong>1 more</strong> candidate to compare'; }
+  else              { hint.innerHTML = 'Ready to compare <strong>' + n + ' candidates</strong>'; }
+
+  // Show/hide tray
+  if (n > 0) { tray.classList.add('visible'); }
+  else       { tray.classList.remove('visible'); }
+
+  // Enable compare button only when ≥2
+  btn.disabled    = n < 2;
+  btn.style.opacity = n < 2 ? '0.45' : '1';
+  btn.textContent = n >= 2 ? 'Compare ' + n + ' ▶' : 'Compare ▶';
+}
+
+// ── Clear all selections ─────────────────────────────────────────────
+function clearCompare() {
+  compareList = [];
+  document.querySelectorAll('.compare-cb').forEach(cb => { cb.checked = false; });
+  document.querySelectorAll('.candidate-card').forEach(c => c.classList.remove('in-compare'));
+  updateTray();
+}
+
+// ── Open modal ───────────────────────────────────────────────────────
+function openCompareModal() {
+  if (compareList.length < 2) return;
+  renderCompareTable();
+  document.getElementById('compare-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeCompareModal() {
+  document.getElementById('compare-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeCompareModal();
+});
+
+// ── Build the comparison table ───────────────────────────────────────
+function renderCompareTable() {
+  const cs   = compareList;         // 2 or 3 candidates
+  const n    = cs.length;
+  const body = document.getElementById('compare-modal-body');
+
+  // Helper: best index for a numeric metric (higher = better)
+  function bestIdx(vals) {
+    let max = -Infinity, idx = -1;
+    vals.forEach((v,i) => { if (v > max) { max = v; idx = i; } });
+    return idx;
+  }
+  // Helper: best index for lower-is-better strings like notice period
+  function lowestNoticeDays(str) {
+    if (!str) return 999;
+    const m = str.match(/(\d+)/);
+    return m ? parseInt(m[1]) : 999;
+  }
+  function escH(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Table header ────────────────────────────────────────────────
+  let th = '<tr><th>Candidate</th>';
+  cs.forEach(c => {
+    th += '<th>' + escH(c.name) +
+          '<div style="font-size:0.72rem;font-weight:400;color:#6b7280;margin-top:2px;">' +
+          escH(c.title) + ' · ' + escH(c.company) + '</div></th>';
+  });
+  th += '</tr>';
+
+  // ── Row builder helpers ──────────────────────────────────────────
+  function row(label, cells) {
+    return '<tr><td>' + label + '</td>' + cells.map(c => '<td>' + c + '</td>').join('') + '</tr>';
+  }
+  function numRow(label, vals, suffix, higherBetter) {
+    const best = higherBetter ? bestIdx(vals) : bestIdx(vals.map(v => -v));
+    return '<tr><td>' + label + '</td>' + vals.map((v,i) => {
+      const cls = (i === best) ? ' class="cmp-best"' : '';
+      return '<td' + cls + '>' + v + (suffix||'') + '</td>';
+    }).join('') + '</tr>';
+  }
+  function barRow(label, vals, maxVal) {
+    const best = bestIdx(vals);
+    return '<tr><td>' + label + '</td>' + vals.map((v,i) => {
+      const cls = (i === best) ? ' class="cmp-best"' : '';
+      const pct = Math.round((v / maxVal) * 100);
+      return '<td' + cls + '>' +
+        '<div class="cmp-bar-wrap">' +
+        '<div class="cmp-bar"><div class="cmp-bar-fill" style="width:' + pct + '%;"></div></div>' +
+        '<span style="font-size:0.75rem;font-weight:600;min-width:28px;text-align:right;">' + Math.round(v) + '</span>' +
+        '</div></td>';
+    }).join('') + '</tr>';
+  }
+
+  // ── Build all rows ───────────────────────────────────────────────
+  let rows = '';
+
+  // Overview
+  rows += '<tr><td colspan="' + (n+1) + '" style="background:#f9f8f5;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--brand);padding:0.625rem 1.25rem;">Overview</td></tr>';
+  rows += row('Location', cs.map(c => escH(c.location)));
+  rows += numRow('Experience', cs.map(c => c.years), ' yrs', true);
+  rows += row('Expected CTC', cs.map(c => escH(c.ctc)));
+
+  const noticeDays = cs.map(c => lowestNoticeDays(c.notice));
+  const bestNotice = bestIdx(noticeDays.map(v => -v));
+  rows += '<tr><td>Notice Period</td>' + cs.map((c,i) => {
+    const cls = (i === bestNotice) ? ' class="cmp-best"' : '';
+    return '<td' + cls + '>' + escH(c.notice) + '</td>';
+  }).join('') + '</tr>';
+
+  // Scores
+  rows += '<tr><td colspan="' + (n+1) + '" style="background:#f9f8f5;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--brand);padding:0.625rem 1.25rem;">Scores</td></tr>';
+  rows += barRow('Match Score',    cs.map(c => c.match),    100);
+  rows += barRow('Interest Score', cs.map(c => c.interest), 100);
+
+  // Combined score
+  const combined = cs.map(c => +(0.6*c.match + 0.4*c.interest).toFixed(1));
+  rows += barRow('Combined Score', combined, 100);
+
+  // Score breakdown
+  rows += '<tr><td colspan="' + (n+1) + '" style="background:#f9f8f5;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--brand);padding:0.625rem 1.25rem;">Score Breakdown</td></tr>';
+  rows += barRow('Required Skills', cs.map(c => c.breakdown.req_skills),  40);
+  rows += barRow('Preferred Skills',cs.map(c => c.breakdown.pref_skills), 15);
+  rows += barRow('Experience Fit',  cs.map(c => c.breakdown.experience),  20);
+  rows += barRow('Role Fit',        cs.map(c => c.breakdown.role_fit),    10);
+  rows += barRow('Education',       cs.map(c => c.breakdown.education),   10);
+
+  // Skills
+  rows += '<tr><td colspan="' + (n+1) + '" style="background:#f9f8f5;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--brand);padding:0.625rem 1.25rem;">Skills</td></tr>';
+
+  // Skill matches
+  rows += '<tr><td>Matched Skills</td>' + cs.map(c => {
+    const chips = (c.skill_matches||[]).slice(0,8).map(s =>
+      '<span class="cmp-chip-match">✓ ' + escH(s) + '</span>').join('');
+    return '<td>' + (chips||'<span style="color:#9ca3af;font-size:0.75rem;">None</span>') + '</td>';
+  }).join('') + '</tr>';
+
+  // Skill gaps
+  rows += '<tr><td>Skill Gaps</td>' + cs.map(c => {
+    const chips = (c.skill_gaps||[]).slice(0,6).map(s =>
+      '<span class="cmp-chip-gap">✗ ' + escH(s) + '</span>').join('');
+    return '<td>' + (chips||'<span style="color:#22c55e;font-size:0.75rem;font-weight:600;">✓ No gaps</span>') + '</td>';
+  }).join('') + '</tr>';
+
+  // ── Verdict row ─────────────────────────────────────────────────
+  const winnerIdx = bestIdx(combined);
+  rows += '<tr><td colspan="' + (n+1) + '" style="background:#f9f8f5;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--brand);padding:0.625rem 1.25rem;">Verdict</td></tr>';
+  rows += '<tr><td>Recommendation</td>' + cs.map((c,i) => {
+    if (i === winnerIdx) {
+      return '<td style="background:color-mix(in oklab,var(--brand) 8%,#fff);">' +
+        '<span style="color:var(--brand);font-weight:700;">🏆 Best overall match</span>' +
+        '<div style="font-size:0.72rem;color:#6b7280;margin-top:4px;">Highest combined score</div></td>';
+    }
+    const diff = (combined[winnerIdx] - combined[i]).toFixed(1);
+    return '<td><span style="color:#9ca3af;font-size:0.78rem;">' + diff + ' pts behind leader</span></td>';
+  }).join('') + '</tr>';
+
+  body.innerHTML =
+    '<table class="cmp-table"><thead>' + th + '</thead><tbody>' + rows + '</tbody></table>';
+}
+</script>
+
 {% endblock %}
