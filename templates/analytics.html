@@ -1,0 +1,406 @@
+{% extends "base.html" %}
+{% block title %}Analytics — TalentScout{% endblock %}
+{% block content %}
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ── Analytics page ── */
+.an-page { max-width:1200px; margin:0 auto; padding:1.5rem 1rem; font-family:'Inter',sans-serif; }
+
+/* KPI strip */
+.kpi-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:1rem; margin-bottom:1.5rem; }
+.kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:1.1rem 1.25rem; }
+.kpi-label { font-size:0.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:#6b7280; margin-bottom:4px; }
+.kpi-value { font-size:2rem; font-weight:700; color:#111827; line-height:1; }
+.kpi-value span { font-size:1rem; font-weight:400; color:#6b7280; }
+.kpi-sub   { font-size:0.72rem; color:#9ca3af; margin-top:4px; }
+.kpi-teal  { color:#01696f; }
+
+/* Chart 2-col grid */
+.chart-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; margin-bottom:1.25rem; }
+.chart-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:1.25rem; }
+.chart-title{ font-size:0.8rem; font-weight:600; color:#374151; margin-bottom:1rem; }
+
+/* FIX BUG 2: explicit height on wrapper + canvas */
+.chart-wrap { position:relative; width:100%; height:220px; }
+.chart-wrap canvas { display:block; width:100% !important; height:100% !important; }
+
+/* Bottom row */
+.bottom-row { display:grid; grid-template-columns:300px 1fr; gap:1.25rem; margin-bottom:1.5rem; }
+
+/* Funnel */
+.funnel-list { display:flex; flex-direction:column; gap:10px; margin-top:4px; }
+.funnel-row  { display:flex; align-items:center; gap:10px; }
+.funnel-lbl  { font-size:0.72rem; color:#6b7280; text-align:right; min-width:100px; }
+.funnel-bar-outer { flex:1; background:#f3f4f6; border-radius:4px; height:28px; overflow:hidden; }
+.funnel-bar-inner { height:100%; border-radius:4px; display:flex; align-items:center; padding:0 10px;
+                    transition:width .6s cubic-bezier(.4,0,.2,1); }
+.funnel-bar-num  { font-size:0.72rem; font-weight:700; color:#fff; white-space:nowrap; }
+.funnel-pct  { font-size:0.68rem; color:#9ca3af; min-width:30px; }
+
+/* Table */
+.table-card  { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:1.25rem; overflow-x:auto; }
+.an-table    { width:100%; border-collapse:collapse; font-size:0.82rem; }
+.an-table th { text-align:left; font-size:0.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em;
+               color:#9ca3af; padding:0 12px 10px; border-bottom:1px solid #f3f4f6; }
+.an-table td { padding:10px 12px; border-bottom:1px solid #f9fafb; color:#374151; vertical-align:middle; }
+.an-table tr:last-child td { border-bottom:none; }
+.an-table tr:hover td { background:#fafafa; }
+.rank-badge  { width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center;
+               justify-content:center; font-size:0.68rem; font-weight:700; flex-shrink:0; }
+.r1 { background:#f59e0b; color:#fff; }
+.r2 { background:#9ca3af; color:#fff; }
+.r3 { background:#b45309; color:#fff; }
+.rn { background:#f3f4f6; color:#6b7280; }
+.pill { display:inline-block; padding:2px 9px; border-radius:9999px; font-size:0.72rem; font-weight:600; }
+.ph { background:#d1fae5; color:#065f46; }
+.pm { background:#fef3c7; color:#92400e; }
+.pl { background:#fee2e2; color:#991b1b; }
+.cbar { height:5px; border-radius:3px; background:#01696f; display:inline-block; vertical-align:middle; }
+
+/* Page header */
+.pg-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:1.5rem; }
+.pg-title   { font-size:1.4rem; font-weight:700; color:#111827; margin:0 0 4px; }
+.pg-sub     { font-size:0.8rem; color:#6b7280; }
+.btn-back   { font-size:0.8rem; padding:0.45rem 1rem; border:1px solid #e5e7eb; border-radius:8px;
+               color:#374151; text-decoration:none; background:#fff; cursor:pointer;
+               transition:background .15s; white-space:nowrap; }
+.btn-back:hover { background:#f9fafb; }
+
+/* No-data state */
+.no-data { text-align:center; padding:6rem 1rem; }
+.no-data h3 { font-size:1.1rem; font-weight:600; color:#374151; margin:0 0 8px; }
+.no-data p  { font-size:0.875rem; color:#6b7280; max-width:30ch; margin:0 auto 1.5rem; }
+.btn-primary { display:inline-block; padding:0.55rem 1.25rem; background:#01696f; color:#fff;
+               border-radius:8px; text-decoration:none; font-size:0.875rem; font-weight:600; }
+
+@media(max-width:900px){
+  .chart-grid { grid-template-columns:1fr; }
+  .bottom-row { grid-template-columns:1fr; }
+}
+@media(max-width:600px){
+  .kpi-grid { grid-template-columns:repeat(2,1fr); }
+}
+</style>
+
+<div class="an-page">
+
+  <div class="pg-header">
+    <div>
+      <h1 class="pg-title">Analytics Dashboard</h1>
+      <p class="pg-sub">
+        {% if not no_data %}
+          {{ total }} candidates evaluated
+          {% if engaged_count > 0 %} · {{ engaged_count }} conversations run{% endif %}
+        {% endif %}
+      </p>
+    </div>
+    <a href="/candidates" class="btn-back">← Back to Candidates</a>
+  </div>
+
+  {% if no_data %}
+  <div class="no-data">
+    <div style="font-size:3rem;margin-bottom:1rem;">📭</div>
+    <h3>No data yet</h3>
+    <p>Parse a job description first to see analytics.</p>
+    <a href="/" class="btn-primary">Parse a JD</a>
+  </div>
+
+  {% else %}
+
+  <!-- KPI strip -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">Total Evaluated</div>
+      <div class="kpi-value">{{ total }}</div>
+      <div class="kpi-sub">candidates</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Avg Match Score</div>
+      <div class="kpi-value kpi-teal">{{ avg_match }}<span>%</span></div>
+      <div class="kpi-sub">across all candidates</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Avg Interest Score</div>
+      <div class="kpi-value kpi-teal">{{ avg_interest }}<span>%</span></div>
+      <div class="kpi-sub">{{ engaged_count }} conversations</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Shortlisted</div>
+      <div class="kpi-value">{{ shortlisted }}</div>
+      <div class="kpi-sub">match score ≥ 70%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Engagement Rate</div>
+      <div class="kpi-value">{{ ((engaged_count / total) * 100)|int }}<span>%</span></div>
+      <div class="kpi-sub">{{ engaged_count }}/{{ total }} engaged</div>
+    </div>
+  </div>
+
+  <!-- Charts 2×2 grid -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-title">Match Score Distribution</div>
+      <div class="chart-wrap">
+        {# FIX BUG 2: explicit width/height attributes #}
+        <canvas id="distChart" width="400" height="220"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Candidate Tiers</div>
+      <div class="chart-wrap">
+        <canvas id="tierChart" width="400" height="220"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Match Score vs Interest Score</div>
+      <div class="chart-wrap">
+        <canvas id="scatterChart" width="400" height="220"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Top Skill Gaps</div>
+      <div class="chart-wrap">
+        <canvas id="gapChart" width="400" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Funnel + Table -->
+  <div class="bottom-row">
+    <div class="chart-card" style="align-self:start;">
+      <div class="chart-title">Recruitment Funnel</div>
+      <div class="funnel-list" id="funnelEl"></div>
+    </div>
+
+    <div class="table-card">
+      <div class="chart-title" style="margin-bottom:1rem;">Top Candidates — Combined Score</div>
+      <table class="an-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Candidate</th>
+            <th>Match</th>
+            <th>Interest</th>
+            <th>Combined</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in top_candidates %}
+          <tr>
+            <td>
+              <span class="rank-badge {% if loop.index==1 %}r1{% elif loop.index==2 %}r2{% elif loop.index==3 %}r3{% else %}rn{% endif %}">
+                {{ loop.index }}
+              </span>
+            </td>
+            <td>
+              <div style="font-weight:600;color:#111827;">{{ c.name }}</div>
+              <div style="font-size:0.72rem;color:#9ca3af;">{{ c.title }} · {{ c.company }}</div>
+            </td>
+            <td>
+              <span class="pill {% if c.match>=70 %}ph{% elif c.match>=50 %}pm{% else %}pl{% endif %}">
+                {{ c.match }}%
+              </span>
+            </td>
+            <td>
+              {% if c.interest > 0 %}
+              <span class="pill {% if c.interest>=70 %}ph{% elif c.interest>=50 %}pm{% else %}pl{% endif %}">
+                {{ c.interest }}%
+              </span>
+              {% else %}
+              <span style="color:#d1d5db;">—</span>
+              {% endif %}
+            </td>
+            <td style="min-width:130px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:0.82rem;font-weight:600;color:#111827;min-width:42px;">{{ c.combined }}%</span>
+                <span class="cbar" style="width:{{ [c.combined,100]|min|int }}px;"></span>
+              </div>
+            </td>
+            <td>
+              {% if c.engaged %}
+              <span style="font-size:0.65rem;padding:2px 8px;border-radius:9999px;background:#e0f2fe;color:#0369a1;font-weight:600;">Engaged</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% endif %}
+</div>
+
+{% if not no_data %}
+{# Chart.js CDN — loaded synchronously before init script #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+/* FIX BUG 1: wrap in DOMContentLoaded so canvas elements are guaranteed in DOM */
+document.addEventListener('DOMContentLoaded', function () {
+
+  /* ── palette ──────────────────────────────── */
+  const TEAL   = '#01696f';
+  const TEAL2  = '#4f98a3';
+  const AMBER  = '#d97706';
+  const SLATE  = '#64748b';
+  const ROSE   = '#be185d';
+  const MUT    = '#9ca3af';
+  const GRID   = '#f3f4f6';
+
+  /* ── data from server ─────────────────────── */
+  const bucketData  = {{ bucket_data | safe }};
+  const tierData    = {{ tier_data | safe }};
+  const scatterRaw  = {{ scatter_data | safe }};
+  const gapLabels   = {{ gap_labels | safe }};
+  const gapCounts   = {{ gap_counts | safe }};
+  const funnelData  = {{ funnel | tojson }};
+
+  /* ── shared axis defaults ─────────────────── */
+  const axisDefaults = {
+    ticks: { color: MUT, font: { size: 11 } },
+    grid:  { color: GRID }
+  };
+
+  /* ── 1. Match Score Distribution ─────────── */
+  /* FIX BUG 3: use solid visible colors per bucket */
+  new Chart(document.getElementById('distChart'), {
+    type: 'bar',
+    data: {
+      labels: ['0–20', '21–40', '41–60', '61–80', '81–100'],
+      datasets: [{
+        label: 'Candidates',
+        data: bucketData,
+        backgroundColor: ['#fca5a5', '#fcd34d', '#67e8f9', TEAL2, TEAL],
+        borderColor:     ['#ef4444', '#f59e0b', '#06b6d4', '#227f8b', '#014f52'],
+        borderWidth: 1.5,
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { ...axisDefaults.ticks, stepSize: 1 }, grid: axisDefaults.grid },
+        x: { ticks: axisDefaults.ticks, grid: { display: false } }
+      }
+    }
+  });
+
+  /* ── 2. Tier Doughnut ─────────────────────── */
+  new Chart(document.getElementById('tierChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Excellent 80+', 'Good 60–79', 'Fair 40–59', 'Low <40'],
+      datasets: [{
+        data: tierData,
+        backgroundColor: [TEAL, TEAL2, AMBER, '#e5e7eb'],
+        borderWidth: 0,
+        hoverOffset: 8,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '60%',
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { boxWidth: 11, padding: 12, color: MUT, font: { size: 11 } }
+        }
+      }
+    }
+  });
+
+  /* ── 3. Scatter: Match vs Interest ─────────── */
+  new Chart(document.getElementById('scatterChart'), {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        label: 'Candidates',
+        data: scatterRaw,
+        backgroundColor: 'rgba(1,105,111,0.2)',
+        borderColor: TEAL,
+        borderWidth: 1.5,
+        pointRadius: 7,
+        pointHoverRadius: 9,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const pt = scatterRaw[ctx.dataIndex];
+              return ` ${pt.label}  Match: ${pt.x}%  Interest: ${pt.y}%`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { min:0, max:100,
+             title: { display:true, text:'Match Score (%)', color:MUT, font:{size:11} },
+             ticks: axisDefaults.ticks, grid: axisDefaults.grid },
+        y: { min:0, max:100,
+             title: { display:true, text:'Interest Score (%)', color:MUT, font:{size:11} },
+             ticks: axisDefaults.ticks, grid: axisDefaults.grid }
+      }
+    }
+  });
+
+  /* ── 4. Skill Gaps horizontal bar ─────────── */
+  new Chart(document.getElementById('gapChart'), {
+    type: 'bar',
+    data: {
+      labels: gapLabels,
+      datasets: [{
+        label: 'Missing in # candidates',
+        data: gapCounts,
+        backgroundColor: 'rgba(190,24,93,0.15)',
+        borderColor: ROSE,
+        borderWidth: 1.5,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero:true, ticks:{...axisDefaults.ticks, stepSize:1}, grid: axisDefaults.grid },
+        y: { ticks:{ ...axisDefaults.ticks, font:{size:11} }, grid:{ display:false } }
+      }
+    }
+  });
+
+  /* ── 5. Funnel (pure CSS bars) ─────────────── */
+  const funnelEl = document.getElementById('funnelEl');
+  if (funnelEl && funnelData.length) {
+    const maxCount = funnelData[0].count || 1;
+    const alphas   = [1, 0.8, 0.62, 0.44, 0.3];
+    funnelEl.innerHTML = funnelData.map((row, i) => {
+      const pct   = Math.round((row.count / maxCount) * 100);
+      const wPct  = Math.max(pct, 8);
+      const alpha = alphas[i] || 0.3;
+      return `
+        <div class="funnel-row">
+          <span class="funnel-lbl">${row.label}</span>
+          <div class="funnel-bar-outer">
+            <div class="funnel-bar-inner" style="width:${wPct}%;background:rgba(1,105,111,${alpha});">
+              <span class="funnel-bar-num">${row.count}</span>
+            </div>
+          </div>
+          <span class="funnel-pct">${pct}%</span>
+        </div>`;
+    }).join('');
+  }
+
+}); /* end DOMContentLoaded */
+</script>
+{% endif %}
+
+{% endblock %}

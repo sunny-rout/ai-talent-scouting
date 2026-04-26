@@ -5,8 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
-from app.config import LLM_PROVIDER, OLLAMA_MODEL, VERTEX_MODEL
-from app.conversation import simulate_conversation
+from app.config import LLM_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL
 from app.jd_parser import parse_jd
 from app.llm import get_provider
 from app.matcher import rank_candidates
@@ -208,7 +207,7 @@ async def architecture(request: Request):
 from app.email_draft import generate_email
 @app.post("/generate-email/{candidate_id}")
 async def generate_email_route(candidate_id: str):
-    """Generate a personalized recruiter outreach email via LLM."""
+    """Generate a personalised recruiter outreach email via LLM."""
     if not STATE.get("parsed_jd"):
         raise HTTPException(status_code=400, detail="No JD parsed yet. Go to / and parse a JD first.")
     if not STATE.get("match_results"):
@@ -276,3 +275,100 @@ async def generate_questions_route(candidate_id: str):
         interest_summary=interest_summary,
     )
     return questions
+
+import json as _json
+
+@app.get("/analytics")
+async def analytics_dashboard(request: Request):
+    match_results = STATE.get("match_results", [])
+    conversations = STATE.get("conversations", {})
+
+    if not match_results:
+        return templates.TemplateResponse("analytics.html", {
+            "request": request, "no_data": True
+        })
+
+    # ── Helper: get interest score from conv (Pydantic obj or raw dict) ──
+    def _interest(candidate_id):
+        conv = conversations.get(candidate_id)
+        if not conv:
+            return 0
+        if isinstance(conv, dict):
+            return conv.get("interest_analysis", {}).get("total", 0)
+        return getattr(getattr(conv, "interest_analysis", None), "total", 0)
+
+    # ── KPIs ──────────────────────────────────────────────────────────
+    match_scores    = [r.match_score for r in match_results]
+    interest_scores = [_interest(r.candidate.id) for r in match_results]
+    engaged_ids     = [cid for cid, c in conversations.items() if c]
+
+    avg_match    = round(sum(match_scores)    / len(match_scores), 1)
+    avg_interest = round(sum(interest_scores) / len(match_scores), 1)
+    shortlisted  = sum(1 for s in match_scores if s >= 70)
+
+    # ── Score-bucket histogram (match scores) ─────────────────────────
+    buckets = [0, 0, 0, 0, 0]   # 0-20, 21-40, 41-60, 61-80, 81-100
+    for s in match_scores:
+        buckets[min(int(s // 20), 4)] += 1
+
+    # ── Tier breakdown (doughnut) ─────────────────────────────────────
+    tiers = [0, 0, 0, 0]        # Excellent, Good, Fair, Low
+    for s in match_scores:
+        if   s >= 80: tiers[0] += 1
+        elif s >= 60: tiers[1] += 1
+        elif s >= 40: tiers[2] += 1
+        else:         tiers[3] += 1
+
+    # ── Scatter: match vs interest ────────────────────────────────────
+    scatter = [
+        {"x": round(r.match_score, 1),
+         "y": round(_interest(r.candidate.id), 1),
+         "label": r.candidate.name}
+        for r in match_results
+    ]
+
+    # ── Top skill gaps ────────────────────────────────────────────────
+    gap_counts: dict = {}
+    for r in match_results:
+        for g in (r.skill_gaps or []):
+            gap_counts[g] = gap_counts.get(g, 0) + 1
+    top_gaps = sorted(gap_counts.items(), key=lambda x: -x[1])[:8]
+
+    # ── Funnel ────────────────────────────────────────────────────────
+    funnel = [
+        {"label": "Evaluated",    "count": len(match_results)},
+        {"label": "Match ≥ 60%",  "count": sum(1 for s in match_scores if s >= 60)},
+        {"label": "Engaged",      "count": len(engaged_ids)},
+        {"label": "Interest ≥ 70","count": sum(1 for s in interest_scores if s >= 70)},
+        {"label": "Shortlisted",  "count": shortlisted},
+    ]
+
+    # ── Top candidates table ──────────────────────────────────────────
+    top_candidates = sorted(
+        [{"name":     r.candidate.name,
+          "title":    r.candidate.title,
+          "company":  r.candidate.company,
+          "match":    round(r.match_score, 1),
+          "interest": round(_interest(r.candidate.id), 1),
+          "combined": round((r.match_score * 0.6 + _interest(r.candidate.id) * 0.4), 1),
+          "engaged":  r.candidate.id in conversations,
+         } for r in match_results],
+        key=lambda x: -x["combined"]
+    )[:10]
+
+    return templates.TemplateResponse("analytics.html", {
+        "request":         request,
+        "no_data":         False,
+        "total":           len(match_results),
+        "avg_match":       avg_match,
+        "avg_interest":    avg_interest,
+        "engaged_count":   len(engaged_ids),
+        "shortlisted":     shortlisted,
+        "bucket_data":     _json.dumps(buckets),
+        "tier_data":       _json.dumps(tiers),
+        "scatter_data":    _json.dumps(scatter),
+        "gap_labels":      _json.dumps([g[0] for g in top_gaps]),
+        "gap_counts":      _json.dumps([g[1] for g in top_gaps]),
+        "funnel":          funnel,
+        "top_candidates":  top_candidates,
+    })
