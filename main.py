@@ -1,9 +1,18 @@
 """
 TalentScout AI — FastAPI application entry point.
 
-After refactor: this file handles only app bootstrap, lifespan, static/template
-mounting, the index route, and the parse-jd route. All other routes live in
-app/routes/ and get shared state via Depends().
+Handles app bootstrap, lifespan, static/template mounting, and the routes
+that need direct access to CANDIDATE_MAP or templates:
+  GET  /                  — JD input form
+  POST /parse-jd          — parse JD, run matching, render candidates
+  GET  /candidates        — ranked candidate grid
+  GET  /engage/{cid}      — candidate profile + engagement page
+  GET  /shortlist         — ranked shortlist view
+  GET  /architecture      — architecture diagram page
+  POST /explain-score     — LLM score explanation (cached)
+  GET  /health/llm        — LLM provider health check
+
+All other routes live in app/routes/ and receive shared state via Depends().
 """
 from contextlib import asynccontextmanager
 import json
