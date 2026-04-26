@@ -88,23 +88,78 @@
 
           <!-- Match Score -->
           <td style="padding:0.875rem 1rem; text-align:center;">
-            <span class="badge-{{ mc }}">{{ e.match_score }}%</span>
+            <span class="badge-{{ mc }} score-clickable"
+  title="Click for AI explanation"
+  onclick="window.explainScore('match', {{ e.match_score }}, {
+    candidate_id      : '{{ e.candidate.id }}',
+    candidate_name    : '{{ e.candidate.name }}',
+    candidate_title   : '{{ e.candidate.title }}',
+    candidate_company : '{{ e.candidate.company }}',
+    years_experience  : {{ e.candidate.years_experience }},
+    jd_role           : '{{ job_desc.role if job_desc else '' }}',
+    jd_required_skills: {{ job_desc.required_skills|tojson if job_desc else '[]' }},
+    jd_years_required : {{ job_desc.years_experience_required if job_desc else 0 }},
+    breakdown         : {
+      req_skills  : {{ e.score_breakdown.required_skills  if e.score_breakdown else 0 }},
+      pref_skills : {{ e.score_breakdown.preferred_skills if e.score_breakdown else 0 }},
+      experience  : {{ e.score_breakdown.experience       if e.score_breakdown else 0 }},
+      role_fit    : {{ e.score_breakdown.role_fit         if e.score_breakdown else 0 }},
+      education   : {{ e.score_breakdown.education        if e.score_breakdown else 0 }}
+    },
+    skill_matches : {{ e.skill_matches|tojson if e.skill_matches else '[]' }},
+    skill_gaps    : {{ e.skill_gaps|tojson    if e.skill_gaps    else '[]' }}
+  })">{{ e.match_score }}%</span>
           </td>
 
           <!-- Interest Score -->
           <td style="padding:0.875rem 1rem; text-align:center;">
             {% if e.interest_score > 0 %}
-            <span class="badge-{{ ic }}">{{ e.interest_score }}%</span>
+            <span class="badge-{{ ic }} score-clickable"
+              title="Click for AI explanation"
+              onclick="window.explainScore('interest', {{ e.interest_score }}, {
+                candidate_id     : '{{ e.candidate.id }}',
+                candidate_name   : '{{ e.candidate.name }}',
+                candidate_title  : '{{ e.candidate.title }}',
+                candidate_company: '{{ e.candidate.company }}',
+                interest_analysis: {
+                  enthusiasm      : {{ e.interest_breakdown.enthusiasm       if e.interest_breakdown else 0 }},
+                  availability    : {{ e.interest_breakdown.availability     if e.interest_breakdown else 0 }},
+                  compensation_fit: {{ e.interest_breakdown.compensation_fit if e.interest_breakdown else 0 }},
+                  engagement      : {{ e.interest_breakdown.engagement       if e.interest_breakdown else 0 }},
+                  summary         : '{{ e.interest_summary|replace("'","\\'")|default("") }}'
+                }
+              })">{{ e.interest_score }}%
+            </span>
             {% else %}
-            <span style="color:#d1d5db; font-size:0.75rem;">—</span>
+            <span title="No conversation conducted — scored on match only"
+              style="font-size:0.68rem; color:#9ca3af; background:#f9fafb;
+                    border:1px solid #f3f4f6; border-radius:0.375rem;
+                    padding:2px 7px; cursor:help; white-space:nowrap;">
+              No conv.
+            </span>
             {% endif %}
           </td>
 
           <!-- Final Score -->
           <td style="padding:0.875rem 1rem; text-align:center;">
-            <span class="badge-{{ fc }}" style="font-size:0.875rem; font-weight:700; font-family:'Space Grotesk',sans-serif; padding:3px 12px;">
-              {{ e.final_score }}%
-            </span>
+            <span class="badge-{{ fc }} score-clickable"
+  style="font-size:0.875rem; font-weight:700; font-family:'Space Grotesk',sans-serif; padding:3px 12px;"
+  title="Click for AI explanation"
+  onclick="window.explainScore('final', {{ e.final_score }}, {
+    candidate_id     : '{{ e.candidate.id }}',
+    candidate_name   : '{{ e.candidate.name }}',
+    candidate_title  : '{{ e.candidate.title }}',
+    candidate_company: '{{ e.candidate.company }}',
+    years_experience : {{ e.candidate.years_experience }},
+    jd_role          : '{{ job_desc.role if job_desc else '' }}',
+    match_score      : {{ e.match_score }},
+    interest_score   : {{ e.interest_score }},
+    skill_matches    : {{ e.skill_matches|tojson if e.skill_matches else '[]' }},
+    skill_gaps       : {{ e.skill_gaps|tojson    if e.skill_gaps    else '[]' }},
+    interest_analysis: {
+      summary: '{{ e.interest_summary|replace("'","\\'")|default("") }}'
+    }
+  })">{{ e.final_score }}%</span>
           </td>
 
           <!-- Skills / Gaps -->

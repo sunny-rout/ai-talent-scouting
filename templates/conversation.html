@@ -280,7 +280,28 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') closeEmailModal
       <p style="font-size:0.875rem; font-weight:600; color:#374151; margin-bottom:0.75rem;">Match Score</p>
       {% set color = score_color(match_result.match_score) %}
       <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1rem;">
-        <div class="score-ring score-ring-{{ color }}" style="width:56px; height:56px; font-size:1rem;">
+        <div class="score-ring score-ring-{{ color }} score-clickable"
+          style="width:56px; height:56px; font-size:1rem;"
+          title="Click for AI explanation"
+          onclick="window.explainScore('match', {{ match_result.match_score }}, {
+            candidate_id      : '{{ candidate.id }}',
+            candidate_name    : '{{ candidate.name }}',
+            candidate_title   : '{{ candidate.title }}',
+            candidate_company : '{{ candidate.company }}',
+            years_experience  : {{ candidate.years_experience }},
+            jd_role           : '{{ jd.role if jd else '' }}',
+            jd_required_skills: {{ jd.required_skills|tojson if jd else '[]' }},
+            jd_years_required : {{ jd.years_experience_required if jd else 0 }},
+            breakdown         : {
+              req_skills  : {{ match_result.score_breakdown.required_skills }},
+              pref_skills : {{ match_result.score_breakdown.preferred_skills }},
+              experience  : {{ match_result.score_breakdown.experience }},
+              role_fit    : {{ match_result.score_breakdown.role_fit }},
+              education   : {{ match_result.score_breakdown.education }}
+            },
+            skill_matches : {{ match_result.skill_matches|tojson }},
+            skill_gaps    : {{ match_result.skill_gaps|tojson }}
+          })">
           {{ match_result.match_score|int }}
         </div>
         <div>
@@ -425,7 +446,22 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') closeEmailModal
       <div class="card" id="interestPanel">
         <p style="font-size:0.875rem; font-weight:600; color:#374151; margin-bottom:0.75rem;">Interest Score Analysis</p>
         <div style="display:flex; align-items:flex-start; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;">
-          <div class="score-ring score-ring-{{ icolor }}" style="width:56px; height:56px; font-size:1rem;">{{ ia.total|int }}</div>
+          <div class="score-ring score-ring-{{ icolor }} score-clickable"
+          style="width:56px; height:56px; font-size:1rem;"
+          title="Click for AI explanation"
+          onclick="window.explainScore('interest', {{ ia.total }}, {
+            candidate_id     : '{{ candidate.id }}',
+            candidate_name   : '{{ candidate.name }}',
+            candidate_title  : '{{ candidate.title }}',
+            candidate_company: '{{ candidate.company }}',
+            interest_analysis: {
+              enthusiasm      : {{ ia.enthusiasm }},
+              availability    : {{ ia.availability }},
+              compensation_fit: {{ ia.compensation_fit }},
+              engagement      : {{ ia.engagement }},
+              summary         : '{{ ia.summary|replace("'","\\'")|default("") }}'
+            }
+          })">{{ ia.total|int }}</div>
           <div style="flex:1; min-width:180px;">
             <div style="font-size:1rem; font-weight:700; color:#111;">{{ ia.total }}%</div>
             <div style="font-size:0.72rem; color:#9ca3af; margin-bottom:6px;">Interest Score</div>

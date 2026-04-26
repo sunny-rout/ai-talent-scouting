@@ -101,7 +101,25 @@
           {{ c.location }} · {{ c.years_experience }} yrs exp
         </p>
       </div>
-      <div class="score-ring score-ring-{{ color }}">{{ result.match_score|int }}</div>
+      <div class="score-ring score-ring-{{ color }} score-clickable"
+          title="Click for AI explanation"
+          onclick="(function(el){
+            const card = el.closest('[data-candidate]');
+            const c = card ? JSON.parse(card.dataset.candidate) : {};
+            window.explainScore('match', {{ result.match_score }}, {
+              candidate_id      : c.id || '{{ c.id }}',
+              candidate_name    : c.name || '{{ c.name }}',
+              candidate_title   : c.title || '{{ c.title }}',
+              candidate_company : c.company || '{{ c.company }}',
+              years_experience  : c.years || {{ c.years_experience }},
+              jd_role           : '{{ job_desc.role if job_desc else '' }}',
+              jd_required_skills: {{ job_desc.required_skills|tojson if job_desc else '[]' }},
+              jd_years_required : {{ job_desc.years_experience_required if job_desc else 0 }},
+              breakdown         : c.breakdown || {},
+              skill_matches     : c.skill_matches || [],
+              skill_gaps        : c.skill_gaps   || []
+            });
+          })(this)">{{ result.match_score|int }}</div>
     </div>
 
     <!-- Match Score Bar -->
@@ -175,15 +193,64 @@
         ✉️
       </a>
       {% if c.id in shortlist_ids %}
-      <span style="font-size:0.72rem; padding:0.3rem 0.5rem; background:#f0fdf4; color:#166534; border-radius:0.5rem; border:1px solid #bbf7d0; font-weight:500; white-space:nowrap;">
+      <span id="sl-{{ c.id }}"
+        style="font-size:0.72rem; padding:0.3rem 0.5rem; background:#f0fdf4;
+              color:#166534; border-radius:0.5rem; border:1px solid #bbf7d0;
+              font-weight:500; white-space:nowrap;">
         ✓ Listed
       </span>
+      {% else %}
+      <button id="sl-{{ c.id }}"
+        onclick="quickShortlist('{{ c.id }}', this)"
+        title="Add to shortlist without conversation"
+        style="font-size:0.72rem; padding:0.3rem 0.6rem; background:#fff;
+              color:#374151; border-radius:0.5rem; border:1.5px solid #e5e7eb;
+              font-weight:500; white-space:nowrap; cursor:pointer;
+              transition:all 180ms;"
+        onmouseover="this.style.borderColor='var(--brand)';this.style.color='var(--brand)'"
+        onmouseout="this.style.borderColor='#e5e7eb';this.style.color='#374151'">
+        + Shortlist
+      </button>
       {% endif %}
     </div>
 
   </div>
   {% endfor %}
 </div>
+
+<script>
+async function quickShortlist(candidateId, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  try {
+    const res = await fetch('/shortlist/' + candidateId, { method: 'POST' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+
+    const data = await res.json();
+
+    const badge = document.createElement('span');
+    badge.id = 'sl-' + candidateId;
+    badge.style.cssText =
+      'font-size:0.72rem;padding:0.3rem 0.5rem;background:#f0fdf4;' +
+      'color:#166534;border-radius:0.5rem;border:1px solid #bbf7d0;' +
+      'font-weight:500;white-space:nowrap;';
+    badge.textContent = '✓ Listed';
+
+    btn.replaceWith(badge);
+
+    const counter = document.getElementById('shortlist-count');
+    if (counter) {
+      counter.textContent = parseInt(counter.textContent || '0') + 1;
+    }
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = '+ Shortlist';
+    console.error('[quickShortlist]', e);
+    alert('Could not add to shortlist. Please try again.');
+  }
+}
+</script>
 
 <script>
 function filterCards(type) {

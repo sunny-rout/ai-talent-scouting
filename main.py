@@ -140,26 +140,70 @@ async def run_conv(cid: str):
     STATE["conversations"][cid] = result
     return result
 
-@app.post("/shortlist/{cid}")
-async def add_shortlist(cid: str):
-    c  = CANDIDATE_MAP.get(cid)
-    if not c: raise HTTPException(404)
-    STATE["shortlist"] = [e for e in STATE["shortlist"] if e.candidate.id != cid]
-    mr   = next((r for r in STATE["match_results"] if r.candidate.id == cid), None)
-    conv = STATE["conversations"].get(cid)
-    ms   = mr.match_score if mr else 50.0
-    is_  = conv.interest_analysis.total if conv else 0.0
-    fs   = round(0.6*ms + 0.4*is_, 1)
-    STATE["shortlist"].append(ShortlistEntry(
-        rank=0, candidate=c, match_score=ms, interest_score=is_, final_score=fs,
-        skill_matches=mr.skill_matches if mr else [],
-        skill_gaps=mr.skill_gaps if mr else [],
-        conversation_summary=conv.interest_analysis.summary if conv else "Not engaged",
-        interest_analysis=conv.interest_analysis if conv else None,
-    ))
+@app.post("/shortlist/{candidate_id}")
+async def add_to_shortlist(candidate_id: str):
+    """
+    Add a candidate to the shortlist.
+    Works with OR without a prior conversation:
+      - With conversation  → final = 0.6 × match + 0.4 × interest
+      - Without conversation → interest_score = 0, final = match_score
+    """
+
+    # Find candidate
+    candidate = CANDIDATE_MAP.get(candidate_id)
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    # Matching must already exist
+    match_result = next((r for r in STATE["match_results"] if r.candidate.id == candidate_id), None)
+    if not match_result:
+        raise HTTPException(status_code=400, detail="Run matching first before shortlisting")
+
+    # Conversation may or may not exist
+    conversation = STATE["conversations"].get(candidate_id)
+    has_conv = conversation is not None
+
+    if has_conv and conversation.interest_analysis:
+        interest_score = round(conversation.interest_analysis.total, 1)
+        interest_breakdown = conversation.interest_analysis
+        interest_summary = conversation.interest_analysis.summary
+        final_score = round(0.6 * match_result.match_score + 0.4 * interest_score, 1)
+    else:
+        interest_score = 0.0
+        interest_breakdown = None
+        interest_summary = "No conversation conducted — scored on match only"
+        final_score = round(match_result.match_score, 1)
+
+    # Build shortlist entry
+    entry = ShortlistEntry(
+        candidate=candidate,
+        match_score=round(match_result.match_score, 1),
+        interest_score=interest_score,
+        final_score=final_score,
+        skill_matches=match_result.skill_matches,
+        skill_gaps=match_result.skill_gaps,
+        conversation_summary = interest_summary,
+        rank=0,  # to be set in re-ranking step
+    )
+
+    # Upsert
+    STATE["shortlist"] = [e for e in STATE["shortlist"] if e.candidate.id != candidate_id]
+    STATE["shortlist"].append(entry)
+
+    # Re-rank
     STATE["shortlist"].sort(key=lambda e: e.final_score, reverse=True)
-    for i, e in enumerate(STATE["shortlist"], 1): e.rank = i
-    return {"status":"added","final_score":fs}
+    for i, e in enumerate(STATE["shortlist"], 1):
+        e.rank = i
+
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "match_score": entry.match_score,
+        "interest_score": entry.interest_score,
+        "final_score": entry.final_score,
+        "has_conversation": has_conv,
+        "rank": entry.rank,
+    }
 
 @app.delete("/shortlist/{cid}")
 async def del_shortlist(cid: str):
@@ -680,3 +724,42 @@ def _note_id() -> str:
     import random, string
     chars = string.ascii_lowercase + string.digits
     return "n_" + "".join(random.choices(chars, k=8))
+
+from app.explain_score import explain as _explain_score
+# In-process cache: key = "{candidate_id}_{score_type}"  value = explanation str
+_explain_cache: dict[str, str] = {}
+
+@app.post("/explain-score")
+async def explain_score(payload: dict = Body(...)):
+    """
+    Accepts a rich context payload and returns a plain-English score explanation.
+
+    Body keys (all optional except score_type + score_value):
+      score_type        : "match" | "interest" | "final"
+      score_value       : float  (the numeric score to explain)
+      candidate_id      : str    (used as cache key)
+      candidate_name    : str
+      candidate_title   : str
+      candidate_company : str
+      years_experience  : int
+      jd_role           : str
+      jd_required_skills: list[str]
+      jd_years_required : int
+      breakdown         : {req_skills, pref_skills, experience, role_fit, education}
+      skill_matches     : list[str]
+      skill_gaps        : list[str]
+      interest_analysis : {enthusiasm, availability, compensation_fit, engagement, summary}
+      match_score       : float  (needed for "final" type)
+      interest_score    : float  (needed for "final" type)
+    """
+    cache_key = payload.get("candidate_id", "?") + "_" + payload.get("score_type", "match")
+
+    # Return cached explanation immediately (same click = instant)
+    if cache_key in _explain_cache:
+        return {"explanation": _explain_cache[cache_key], "cached": True}
+
+    # Generate via LLM — raises LLMError on failure (handled globally)
+    explanation = _explain_score(payload, _llm())
+
+    _explain_cache[cache_key] = explanation
+    return {"explanation": explanation, "cached": False}
