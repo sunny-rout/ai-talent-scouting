@@ -1,6 +1,8 @@
 import requests
 from typing import List, Dict
 from .base import LLMProvider
+import time
+import httpx
 
 class OllamaProvider(LLMProvider):
     def __init__(self, base_url="http://localhost:11434", model="llama3"):
@@ -17,3 +19,28 @@ class OllamaProvider(LLMProvider):
         resp = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=120)
         resp.raise_for_status()
         return resp.json()["message"]["content"]
+    
+    # ── health_check ──────────────────────────────────────────────────────────
+
+    def health_check(self) -> dict:
+        base = {"provider": "ollama", "model": self.model}
+        t0 = time.monotonic()
+        try:
+            with httpx.Client(timeout=5) as client:
+                r = client.get(f"{self.base_url}/api/tags")
+            latency = int((time.monotonic() - t0) * 1000)
+            if r.status_code != 200:
+                return {**base, "status": "unreachable", "latency_ms": latency,
+                        "hint": "Ollama returned an unexpected status code."}
+            models = [m["name"] for m in r.json().get("models", [])]
+            if self.model not in models and not any(self.model in m for m in models):
+                return {**base, "status": "model_missing", "latency_ms": latency,
+                        "available_models": models,
+                        "hint": f"Run: ollama pull {self.model}"}
+            return {**base, "status": "ok", "latency_ms": latency}
+        except httpx.ConnectError:
+            return {**base, "status": "unreachable", "latency_ms": None,
+                    "hint": "Ollama is not running. Start it with: ollama serve"}
+        except httpx.TimeoutException:
+            return {**base, "status": "timeout", "latency_ms": None,
+                    "hint": "Ollama health check timed out."}

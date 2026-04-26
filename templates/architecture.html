@@ -224,14 +224,34 @@
 
       <div class="pipe-arrow"><div class="data-packet" style="animation-delay:0.9s;"></div><div class="pipe-arrow-dot">▼</div></div>
 
+      <!-- Score Explainer (D2) -->
+      <div class="pipe-node" id="node-5" onclick="selectNode(5)"
+        style="background:#fff7ed; border-color:#fed7aa;">
+        <div style="display:flex; align-items:center; gap:0.75rem;">
+          <div style="width:40px;height:40px;border-radius:50%;background:#ea580c;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">🔎</div>
+          <div style="flex:1;">
+            <div style="font-weight:600; color:#9a3412; font-family:'Space Grotesk',sans-serif;">Score Explainer <span style="font-size:0.7rem;font-weight:400;color:#6b7280;margin-left:4px;">app/explain_score.py</span></div>
+            <div style="font-size:0.78rem; color:#c2410c;">On-demand · temp=0.4 · plain-English per score click</div>
+          </div>
+          <div style="font-size:0.7rem; background:#ffedd5; color:#9a3412; padding:2px 8px; border-radius:9999px; white-space:nowrap;">1 LLM call / click</div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:0.625rem; padding-left:52px;">
+          {% for tag in ["POST /explain-score","match · interest · final","in-process cache","cached = 0ms"] %}
+          <span style="background:rgba(234,88,12,0.08); color:#c2410c; padding:1px 7px; border-radius:4px; font-size:0.68rem; font-weight:500;">{{ tag }}</span>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="pipe-arrow"><div class="data-packet" style="animation-delay:1.1s;"></div><div class="pipe-arrow-dot">▼</div></div>
+
       <!-- Final Ranking -->
       <div class="pipe-node" id="node-4" onclick="selectNode(4)"
         style="background:#f0fdf4; border-color:#86efac;">
         <div style="display:flex; align-items:center; gap:0.75rem;">
           <div style="width:40px;height:40px;border-radius:50%;background:#16a34a;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">🏆</div>
           <div style="flex:1;">
-            <div style="font-weight:600; color:#166534; font-family:'Space Grotesk',sans-serif;">Final Ranker + CSV Export</div>
-            <div style="font-size:0.78rem; color:#15803d;">0.6 × Match + 0.4 × Interest → sorted shortlist</div>
+            <div style="font-weight:600; color:#166534; font-family:'Space Grotesk',sans-serif;">Final Ranker + Shortlist</div>
+            <div style="font-size:0.78rem; color:#15803d;">0.6 × Match + 0.4 × Interest · optional conv · re-ranks on add</div>
           </div>
           <div style="font-size:0.7rem; background:#dcfce7; color:#166534; padding:2px 8px; border-radius:9999px; white-space:nowrap;">0 LLM calls</div>
         </div>
@@ -374,6 +394,28 @@
         </div>
       </div>
 
+      <!-- Node 5: Score Explainer (D2) -->
+      <div id="detail-5" class="card detail-panel" style="padding:1.25rem;">
+        <p style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#c2410c; margin:0 0 0.75rem;">🔎 Score Explainer (D2)</p>
+        <p style="font-size:0.8rem; color:#374151; line-height:1.6; margin:0 0 0.875rem;">
+          On-demand LLM call triggered when a recruiter clicks any score ring or badge. Sends candidate context + breakdown to GPT-4o which replies with 3–5 bullet plain-English reasoning. Cached in-process — same click = instant reply.
+        </p>
+        <div style="font-size:0.75rem; font-weight:600; color:#374151; margin-bottom:0.5rem;">Three prompt types:</div>
+        <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:0.875rem;">
+          <div style="background:#e8f4f3; border-radius:5px; padding:6px 10px; font-size:0.72rem; color:#374151;"><strong>match</strong> — Why did they score X% on skills/experience?</div>
+          <div style="background:#ede9fe; border-radius:5px; padding:6px 10px; font-size:0.72rem; color:#374151;"><strong>interest</strong> — What signals came from the conversation?</div>
+          <div style="background:#dcfce7; border-radius:5px; padding:6px 10px; font-size:0.72rem; color:#374151;"><strong>final</strong> — Trade-off explanation + hire/consider/pass verdict</div>
+        </div>
+        <div style="background:#1e1e2e; color:#cdd6f4; border-radius:0.5rem; padding:0.75rem; font-family:monospace; font-size:0.7rem; line-height:1.6;">
+          POST /explain-score<br/>
+          {score_type, candidate_ctx, breakdown}<br/>
+          → {explanation: "...", cached: bool}
+        </div>
+        <div style="margin-top:0.75rem; padding:0.75rem; background:#ffedd5; border-radius:0.5rem; font-size:0.75rem; color:#9a3412;">
+          <strong>Cache key:</strong> <code>{candidate_id}_{score_type}</code> — same click = 0ms latency
+        </div>
+      </div>
+
       <!-- Node 4: Ranker -->
       <div id="detail-4" class="card detail-panel" style="padding:1.25rem;">
         <p style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:#166534; margin:0 0 0.75rem;">🏆 Final Ranker</p>
@@ -403,8 +445,45 @@
     </div><!-- end right -->
   </div><!-- end grid -->
 
-  <!-- Tech Stack Row -->
+  <!-- UI Capabilities -->
   <div style="margin-top:2rem; padding-top:1.5rem; border-top:1px solid #e5e7eb;">
+    <p style="font-size:0.75rem; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.875rem;">UI Capabilities</p>
+    <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:0.625rem; margin-bottom:1.5rem;">
+      <div style="background:#e8f4f3; border-radius:0.625rem; padding:0.75rem 0.875rem; border:1px solid #cce8e5;">
+        <div style="font-size:1.1rem; margin-bottom:3px;">⚖️</div>
+        <div style="font-weight:600; font-size:0.78rem; color:#111; margin-bottom:2px;">Candidate Compare</div>
+        <div style="font-size:0.7rem; color:#6b7280; line-height:1.4;">Select 2–4 profiles · side-by-side score breakdown · winner highlighted</div>
+      </div>
+      <div style="background:#fff7ed; border-radius:0.625rem; padding:0.75rem 0.875rem; border:1px solid #fed7aa;">
+        <div style="font-size:1.1rem; margin-bottom:3px;">🔎</div>
+        <div style="font-weight:600; font-size:0.78rem; color:#111; margin-bottom:2px;">Score Explanation</div>
+        <div style="font-size:0.7rem; color:#6b7280; line-height:1.4;">Click any score → GPT-4o plain-English reasoning · in-process cache</div>
+      </div>
+      <div style="background:#f0fdf4; border-radius:0.625rem; padding:0.75rem 0.875rem; border:1px solid #bbf7d0;">
+        <div style="font-size:1.1rem; margin-bottom:3px;">⚡</div>
+        <div style="font-weight:600; font-size:0.78rem; color:#111; margin-bottom:2px;">Quick Shortlist</div>
+        <div style="font-size:0.7rem; color:#6b7280; line-height:1.4;">Add candidates before conversation · interest_score=0 · re-ranks automatically</div>
+      </div>
+      <div style="background:#ede9fe; border-radius:0.625rem; padding:0.75rem 0.875rem; border:1px solid #c4b5fd;">
+        <div style="font-size:1.1rem; margin-bottom:3px;">💬</div>
+        <div style="font-weight:600; font-size:0.78rem; color:#111; margin-bottom:2px;">Simulated Outreach</div>
+        <div style="font-size:0.7rem; color:#6b7280; line-height:1.4;">4-turn LLM conversation · personality-driven · interest scored 0–100</div>
+      </div>
+      <div style="background:#fef9c3; border-radius:0.625rem; padding:0.75rem 0.875rem; border:1px solid #fde68a;">
+        <div style="font-size:1.1rem; margin-bottom:3px;">🏆</div>
+        <div style="font-weight:600; font-size:0.78rem; color:#111; margin-bottom:2px;">Ranked Shortlist</div>
+        <div style="font-size:0.7rem; color:#6b7280; line-height:1.4;">0.6 × Match + 0.4 × Interest · live re-rank · CSV export</div>
+      </div>
+      <div style="background:#eff6ff; border-radius:0.625rem; padding:0.75rem 0.875rem; border:1px solid #bfdbfe;">
+        <div style="font-size:1.1rem; margin-bottom:3px;">📊</div>
+        <div style="font-weight:600; font-size:0.78rem; color:#111; margin-bottom:2px;">This Page</div>
+        <div style="font-size:0.7rem; color:#6b7280; line-height:1.4;">Interactive pipeline · click to expand · Animate Flow walkthrough</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tech Stack Row -->
+  <div style="margin-top:0; padding-top:1.5rem; border-top:1px solid #e5e7eb;">
     <p style="font-size:0.75rem; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.875rem;">Tech Stack</p>
     <div style="display:flex; flex-wrap:wrap; gap:0.5rem;">
       {% for name, icon in [
@@ -420,7 +499,7 @@
 </div><!-- end arch-page -->
 
 <script>
-const nodes = [0,1,2,3,4];
+const nodes = [0,1,2,3,4,5];
 let activeNode = null;
 
 function selectNode(n) {

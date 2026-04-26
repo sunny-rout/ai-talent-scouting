@@ -763,3 +763,21 @@ async def explain_score(payload: dict = Body(...)):
 
     _explain_cache[cache_key] = explanation
     return {"explanation": explanation, "cached": False}
+
+@app.get("/health/llm")
+async def health_llm():
+    """
+    Probes the configured LLM backend.
+    Returns: {status, provider, model, latency_ms, hint?}
+    """        # your existing helper that returns the active LLMProvider
+    try:
+        result = _llm().health_check()
+    except Exception as exc:
+        result = {
+            "status"    : "error",
+            "provider"  : "unknown",
+            "model"     : "unknown",
+            "hint"      : str(exc),
+            "latency_ms": None,
+        }
+    return result
