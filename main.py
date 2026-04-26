@@ -680,3 +680,68 @@ def _note_id() -> str:
     import random, string
     chars = string.ascii_lowercase + string.digits
     return "n_" + "".join(random.choices(chars, k=8))
+
+from fastapi.responses import JSONResponse
+from app.llm.exceptions import (
+    LLMError, LLMConnectionError, LLMTimeoutError,
+    LLMAuthError, LLMRateLimitError, LLMModelNotFoundError,
+)
+
+
+# ── Per-class handlers (most specific first) ────────────────────────────────
+
+@app.exception_handler(LLMConnectionError)
+async def llm_connection_handler(request: Request, exc: LLMConnectionError):
+    return JSONResponse(status_code=503, content=exc.to_dict())
+
+@app.exception_handler(LLMTimeoutError)
+async def llm_timeout_handler(request: Request, exc: LLMTimeoutError):
+    return JSONResponse(status_code=504, content=exc.to_dict())
+
+@app.exception_handler(LLMAuthError)
+async def llm_auth_handler(request: Request, exc: LLMAuthError):
+    return JSONResponse(status_code=401, content=exc.to_dict())
+
+@app.exception_handler(LLMRateLimitError)
+async def llm_ratelimit_handler(request: Request, exc: LLMRateLimitError):
+    return JSONResponse(status_code=429, content=exc.to_dict())
+
+@app.exception_handler(LLMModelNotFoundError)
+async def llm_model_handler(request: Request, exc: LLMModelNotFoundError):
+    return JSONResponse(status_code=404, content=exc.to_dict())
+
+@app.exception_handler(LLMError)
+async def llm_base_handler(request: Request, exc: LLMError):
+    return JSONResponse(status_code=500, content=exc.to_dict())
+
+# ── Catch-all for unexpected Python exceptions ─────────────────────────────
+
+@app.exception_handler(Exception)
+async def unhandled_handler(request: Request, exc: Exception):
+    return JSONResponse(status_code=500, content={
+        "error_type"      : "UnexpectedError",
+        "friendly_message": "Something went wrong on the server.",
+        "detail"          : str(exc),
+        "hint"            : "Check the server logs for details.",
+    })
+
+# ── /health/llm — polled every 30 s by the nav badge ──────────────────────
+
+@app.get("/health/llm")
+async def health_llm():
+    """
+    Probes the configured LLM backend.
+    Returns: {status, provider, model, latency_ms, hint?}
+    """
+    llm = _llm()          # your existing helper that returns the active LLMProvider
+    try:
+        result = llm.health_check()
+    except Exception as exc:
+        result = {
+            "status"    : "error",
+            "provider"  : "unknown",
+            "model"     : "unknown",
+            "hint"      : str(exc),
+            "latency_ms": None,
+        }
+    return result

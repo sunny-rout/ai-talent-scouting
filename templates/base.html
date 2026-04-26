@@ -85,6 +85,55 @@
     /* Bounce dots */
     @keyframes bounce-dot { 0%,80%,100% { transform:translateY(0); } 40% { transform:translateY(-6px); } }
     .bounce-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--brand); animation:bounce-dot 1.2s ease-in-out infinite; }
+
+    /* ── B4: Toast notifications ── */
+    #toast-container {
+      position:fixed; top:1rem; right:1rem; z-index:9999;
+      display:flex; flex-direction:column; gap:0.5rem; max-width:360px;
+    }
+    .toast {
+      display:flex; align-items:flex-start; gap:0.75rem;
+      background:#fff; border:1px solid #e5e7eb; border-radius:0.75rem;
+      padding:0.875rem 1rem; box-shadow:0 8px 24px rgba(40,37,29,0.12);
+      animation:toast-in 220ms cubic-bezier(0.16,1,0.3,1) forwards;
+      max-width:360px;
+    }
+    .toast.toast-exit { animation:toast-out 180ms ease-in forwards; }
+    .toast-icon  { font-size:1.1rem; flex-shrink:0; margin-top:1px; }
+    .toast-body  { flex:1; min-width:0; }
+    .toast-title { font-size:0.875rem; font-weight:600; color:#111; margin-bottom:2px; }
+    .toast-detail{ font-size:0.8rem; color:#6b7280; line-height:1.5; }
+    .toast-hint  { font-size:0.75rem; color:var(--brand); margin-top:4px;
+                   background:var(--brand-light); padding:3px 7px;
+                   border-radius:4px; display:inline-block; }
+    .toast-close { background:none; border:none; cursor:pointer;
+                   color:#9ca3af; font-size:1rem; line-height:1;
+                   padding:0; flex-shrink:0; align-self:flex-start; }
+    .toast-close:hover { color:#374151; }
+    .toast-error  { border-left:3px solid #fca5a5; }
+    .toast-warn   { border-left:3px solid #fcd34d; }
+    .toast-success{ border-left:3px solid #86efac; }
+    .toast-info   { border-left:3px solid var(--brand); }
+    @keyframes toast-in  { from{opacity:0;transform:translateX(24px)} to{opacity:1;transform:none} }
+    @keyframes toast-out { from{opacity:1;transform:none} to{opacity:0;transform:translateX(24px)} }
+
+    /* ── B4: LLM status badge ── */
+    #llm-status-badge {
+      display:inline-flex; align-items:center; gap:5px;
+      font-size:0.72rem; color:#6b7280; cursor:default;
+      padding:3px 8px; border-radius:9999px;
+      border:1px solid #e5e7eb; background:#f9f8f5;
+      transition:all 180ms;
+    }
+    #llm-status-dot {
+      width:7px; height:7px; border-radius:50%;
+      background:#d1d5db; flex-shrink:0; transition:background 300ms;
+    }
+    #llm-status-dot.online  { background:#22c55e; box-shadow:0 0 0 2px #dcfce7; }
+    #llm-status-dot.offline { background:#ef4444; box-shadow:0 0 0 2px #fee2e2; }
+    #llm-status-dot.checking{ background:#f59e0b;
+      animation:pulse-check 1s ease-in-out infinite; }
+    @keyframes pulse-check { 0%,100%{opacity:1} 50%{opacity:0.4} }
   </style>
 </head>
 <body class="min-h-screen">
@@ -113,6 +162,10 @@
       <a href="/analytics" style="color:var(--text-muted); text-decoration:none; font-size:0.875rem; font-weight:500; transition:color 180ms;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text-muted)'">Analytics</a>
       {% endif %}
       <a href="/reset" style="color:#9ca3af; text-decoration:none; font-size:0.75rem;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#9ca3af'">↺ Reset</a>
+      <span id="llm-status-badge" title="AI model status">
+        <span id="llm-status-dot" class="checking"></span>
+        <span id="llm-status-text">checking…</span>
+      </span>
     </div>
   </div>
 </nav>
@@ -124,5 +177,138 @@
 <footer style="text-align:center; font-size:0.75rem; color:#9ca3af; padding:2rem 0 3rem;">
   TalentScout AI &nbsp;·&nbsp; FastAPI + Ollama &nbsp;·&nbsp; Prototype v1.0
 </footer>
+
+<div id="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// B4 — TOAST SYSTEM + apiFetch + LLM HEALTH BADGE
+// ═══════════════════════════════════════════════════════
+(function () {
+  const container = document.getElementById('toast-container');
+  const ICONS = { error:'🔴', warn:'⚠️', success:'✅', info:'ℹ️' };
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function createToast(type, title, detail, hint, duration) {
+    const t = document.createElement('div');
+    t.className = 'toast toast-' + type;
+    t.setAttribute('role','alert');
+    t.innerHTML =
+      '<span class="toast-icon">' + ICONS[type] + '</span>' +
+      '<div class="toast-body">' +
+        '<p class="toast-title">' + escHtml(title) + '</p>' +
+        (detail ? '<p class="toast-detail">' + escHtml(detail) + '</p>' : '') +
+        (hint   ? '<p class="toast-hint">'   + escHtml(hint)   + '</p>' : '') +
+      '</div>' +
+      '<button class="toast-close" aria-label="Dismiss">&#x2715;</button>';
+
+    const dismiss = () => {
+      t.classList.add('toast-exit');
+      t.addEventListener('animationend', () => t.remove(), { once: true });
+    };
+    t.querySelector('.toast-close').addEventListener('click', dismiss);
+    if (duration > 0) setTimeout(dismiss, duration);
+    container.appendChild(t);
+    return t;
+  }
+
+  // ── Public toast API ─────────────────────────────────
+  window.toastError   = (title, detail, hint) => createToast('error',   title, detail||'', hint||'', 9000);
+  window.toastWarn    = (title, detail, hint) => createToast('warn',    title, detail||'', hint||'', 7000);
+  window.toastSuccess = (title, detail)       => createToast('success', title, detail||'', '',       4000);
+  window.toastInfo    = (title, detail)       => createToast('info',    title, detail||'', '',       5000);
+
+  // ── apiFetch — drop-in fetch wrapper ────────────────
+  function httpTitle(code) {
+    return ({400:'Bad request',401:'Authentication error',404:'Not found',
+             422:'Validation error',429:'Rate limit reached',500:'Server error',
+             503:'Service unavailable',504:'Request timed out'})[code] || 'Error ' + code;
+  }
+  window.apiFetch = async function(url, opts) {
+    opts = opts || {};
+    try {
+      const res = await fetch(url, opts);
+      if (res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        return ct.includes('json') ? res.json() : res.text();
+      }
+      let body = {};
+      try { body = await res.json(); } catch(_) {}
+      const title  = body.friendly_message || httpTitle(res.status);
+      const detail = body.detail || ('HTTP ' + res.status);
+      const hint   = body.hint   || '';
+      if (res.status === 429) window.toastWarn(title, detail, hint);
+      else                    window.toastError(title, detail, hint);
+      return null;
+    } catch(netErr) {
+      window.toastError(
+        'Network error',
+        'Could not reach the server.',
+        'Is the FastAPI server running? (uvicorn main:app --reload)'
+      );
+      return null;
+    }
+  };
+
+  // ── LLM health badge ─────────────────────────────────
+  const dot   = document.getElementById('llm-status-dot');
+  const txt   = document.getElementById('llm-status-text');
+  const badge = document.getElementById('llm-status-badge');
+
+  async function checkLLMHealth() {
+    if (!dot || !txt) return;
+    dot.className    = 'checking';
+    txt.textContent  = 'checking…';
+    try {
+      const res = await fetch('/health/llm', { signal: AbortSignal.timeout(8000) });
+      const d   = await res.json();
+      if (d.status === 'ok') {
+        dot.className   = 'online';
+        txt.textContent = d.model + ' · ' + d.latency_ms + 'ms';
+        badge.title     = d.provider + ' / ' + d.model + ' — online';
+        window._llmOfflineToastShown = false;
+      } else if (d.status === 'unreachable') {
+        dot.className   = 'offline';
+        txt.textContent = 'LLM offline';
+        badge.title     = d.hint || 'LLM not reachable';
+        if (!window._llmOfflineToastShown) {
+          window._llmOfflineToastShown = true;
+          window.toastError(
+            'AI model offline',
+            d.hint || 'Cannot reach the LLM server.',
+            d.provider === 'ollama' ? 'Run: ollama serve' : 'Check your API key and internet.'
+          );
+        }
+      } else if (d.status === 'model_missing') {
+        dot.className   = 'offline';
+        txt.textContent = 'model missing';
+        badge.title     = d.hint || 'Model not installed';
+      } else if (d.status === 'auth_error') {
+        dot.className   = 'offline';
+        txt.textContent = 'auth error';
+        badge.title     = d.hint || 'Invalid API key';
+      } else {
+        dot.className   = 'offline';
+        txt.textContent = d.status || 'error';
+        badge.title     = d.hint  || '';
+      }
+    } catch(_) {
+      dot.className   = 'offline';
+      txt.textContent = 'unreachable';
+      badge.title     = 'Cannot reach server';
+    }
+  }
+
+  checkLLMHealth();
+  setInterval(checkLLMHealth, 30000);
+  window.recheckLLMHealth = checkLLMHealth;
+})();
+</script>
+
 </body>
 </html>
