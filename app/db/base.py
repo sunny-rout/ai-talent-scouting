@@ -86,3 +86,18 @@ class BaseDB(ABC):
     @abstractmethod
     def load_settings(self) -> dict:
         """Return {llm_provider, llm_model} with sensible defaults."""
+
+    # ── Candidate Notes ───────────────────────────────────────────
+
+    @abstractmethod
+    def save_note(self, candidate_id: str, note: dict) -> None:
+        """Insert a single note dict {id, text, created_at}."""
+
+    @abstractmethod
+    def load_notes(self, candidate_id: str) -> list[dict]:
+        """Return all notes for candidate_id, newest first."""
+
+    @abstractmethod
+    def delete_note(self, candidate_id: str, note_id: str) -> None:
+        """Delete a note by its note_id."""
+

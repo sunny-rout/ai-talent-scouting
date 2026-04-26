@@ -312,6 +312,48 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') closeEmailModal
     {% endif %}
 
     <a href="/candidates" class="btn-outline" style="text-align:center; padding:0.5rem; font-size:0.8rem; text-decoration:none;">← Back to Candidates</a>
+
+    <!-- ── B3: CANDIDATE NOTES ── -->
+    <div class="card" id="notesCard">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+        <p style="font-size:0.875rem; font-weight:600; color:#374151; margin:0;">
+          🗒 Private Notes
+        </p>
+        <span id="noteCount" style="font-size:0.7rem; color:#9ca3af;"></span>
+      </div>
+
+      <!-- Input row -->
+      <div style="display:flex; flex-direction:column; gap:0.5rem;">
+        <textarea id="noteInput"
+          placeholder="Add a private note about this candidate…"
+          rows="3"
+          style="width:100%; padding:0.625rem 0.75rem; border:1px solid #e5e7eb;
+                 border-radius:0.5rem; font-size:0.82rem; color:#374151;
+                 resize:vertical; font-family:inherit; line-height:1.5;
+                 outline:none; transition:border-color 150ms;"
+          onfocus="this.style.borderColor='var(--brand)'"
+          onblur="this.style.borderColor='#e5e7eb'"
+          onkeydown="if(event.ctrlKey&&event.key==='Enter')saveNote()"></textarea>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+          <span style="font-size:0.68rem; color:#9ca3af; align-self:center;">Ctrl+Enter to save</span>
+          <button onclick="saveNote()" id="saveNoteBtn"
+            class="btn-primary"
+            style="padding:0.375rem 0.875rem; font-size:0.8rem; border:none; cursor:pointer;">
+            Save Note
+          </button>
+        </div>
+      </div>
+
+      <!-- Notes list -->
+      <div id="notesList" style="margin-top:0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
+        <!-- populated by loadNotes() on page load -->
+      </div>
+
+      <!-- Empty state -->
+      <div id="notesEmpty" style="display:none; text-align:center; padding:1rem 0; color:#9ca3af;">
+        <p style="font-size:0.8rem; margin:0;">No notes yet. Add one above.</p>
+      </div>
+    </div>
   </div>
 
   <!-- ── RIGHT PANEL ── -->
@@ -557,11 +599,6 @@ function renderConversation(data) {
   });
 
   const ia = data.interest_analysis;
-  if (!ia || typeof ia.total === 'undefined') {
-    console.error('[renderConversation] Missing interest_analysis:', data);
-    alert('Conversation completed but interest scoring failed. Please try again.');
-    return;
-  }
   const icolor = ia.total >= 75 ? 'green' : ia.total >= 50 ? 'yellow' : 'red';
   const matchScore = {{ match_result.match_score if match_result else 50 }};
   const finalScore = (0.6 * matchScore + 0.4 * ia.total).toFixed(1);
@@ -1146,6 +1183,190 @@ window.addEventListener('DOMContentLoaded', function() {
     history.replaceState(null, '', window.location.pathname);
   }
 });
+
+// ════════════════════════════════════════════════════════════════
+// B3 — CANDIDATE NOTES
+// All fetch calls go to:
+//   GET    /candidates/{id}/notes
+//   POST   /candidates/{id}/notes   body: {text}
+//   DELETE /candidates/{id}/notes/{note_id}
+// ════════════════════════════════════════════════════════════════
+
+const CANDIDATE_ID = '{{ candidate.id }}';
+
+// ── Load notes on page load ───────────────────────────────────────
+async function loadNotes() {
+  try {
+    const res  = await fetch('/candidates/' + CANDIDATE_ID + '/notes');
+    const data = await res.json();
+    renderNotes(data.notes || []);
+  } catch (e) {
+    console.warn('[notes] load failed', e);
+  }
+}
+
+// ── Render list ───────────────────────────────────────────────────
+function renderNotes(notes) {
+  const list  = document.getElementById('notesList');
+  const empty = document.getElementById('notesEmpty');
+  const count = document.getElementById('noteCount');
+
+  list.innerHTML = '';
+  count.textContent = notes.length ? notes.length + ' note' + (notes.length > 1 ? 's' : '') : '';
+
+  if (!notes.length) {
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  notes.forEach(note => {
+    const el = buildNoteEl(note);
+    list.appendChild(el);
+  });
+}
+
+// ── Build a single note element ───────────────────────────────────
+function buildNoteEl(note) {
+  const ts = new Date(note.created_at);
+  // Relative time e.g. "2 hours ago"
+  const relTime = formatRelTime(ts);
+
+  const wrapper = document.createElement('div');
+  wrapper.id = 'note-' + note.id;
+  wrapper.style.cssText = [
+    'background:#f9fafb',
+    'border:1px solid #f3f4f6',
+    'border-radius:0.5rem',
+    'padding:0.625rem 0.75rem',
+    'position:relative',
+    'transition:background 150ms'
+  ].join(';');
+
+  wrapper.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem;">' +
+      '<p style="font-size:0.8rem;color:#374151;margin:0;line-height:1.6;white-space:pre-wrap;flex:1;">' +
+        escHtml(note.text) +
+      '</p>' +
+      '<button onclick="deleteNote(\'' + note.id + '\')" ' +
+        'title="Delete note" ' +
+        'style="flex-shrink:0;background:none;border:none;cursor:pointer;' +
+               'color:#d1d5db;font-size:0.85rem;padding:0 2px;line-height:1;' +
+               'transition:color 150ms;" ' +
+        'onmouseover="this.style.color=\'#ef4444\'" ' +
+        'onmouseout="this.style.color=\'#d1d5db\'">✕</button>' +
+    '</div>' +
+    '<p style="font-size:0.68rem;color:#9ca3af;margin:4px 0 0;">' +
+      relTime +
+    '</p>';
+
+  return wrapper;
+}
+
+// ── Save a note ───────────────────────────────────────────────────
+async function saveNote() {
+  const input = document.getElementById('noteInput');
+  const btn   = document.getElementById('saveNoteBtn');
+  const text  = (input.value || '').trim();
+  if (!text) { input.focus(); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Saving\u2026';
+
+  try {
+    const res = await fetch('/candidates/' + CANDIDATE_ID + '/notes', {
+      method : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body   : JSON.stringify({ text })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Save failed');
+    }
+    const data = await res.json();
+
+    // Prepend new note to the list immediately (no reload)
+    const list  = document.getElementById('notesList');
+    const empty = document.getElementById('notesEmpty');
+    const count = document.getElementById('noteCount');
+
+    empty.style.display = 'none';
+    list.insertBefore(buildNoteEl(data.note), list.firstChild);
+
+    // Update count
+    const current = parseInt(count.textContent) || 0;
+    const newCount = current + 1;
+    count.textContent = newCount + ' note' + (newCount > 1 ? 's' : '');
+
+    // Clear input + flash border green
+    input.value = '';
+    input.style.borderColor = '#22c55e';
+    setTimeout(() => { input.style.borderColor = '#e5e7eb'; }, 800);
+
+  } catch (e) {
+    alert('Could not save note: ' + e.message);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Save Note';
+  }
+}
+
+// ── Delete a note ─────────────────────────────────────────────────
+async function deleteNote(noteId) {
+  const el = document.getElementById('note-' + noteId);
+  if (!el) return;
+  if (!confirm('Delete this note?')) return;
+
+  // Optimistic UI — remove immediately
+  el.style.opacity   = '0.4';
+  el.style.transform = 'translateX(8px)';
+  el.style.transition = 'opacity 200ms, transform 200ms';
+
+  try {
+    const res = await fetch(
+      '/candidates/' + CANDIDATE_ID + '/notes/' + noteId,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) throw new Error('Delete failed');
+
+    setTimeout(() => {
+      el.remove();
+      // Update count & empty state
+      const list  = document.getElementById('notesList');
+      const empty = document.getElementById('notesEmpty');
+      const count = document.getElementById('noteCount');
+      const remaining = list.children.length;
+      count.textContent = remaining ? remaining + ' note' + (remaining > 1 ? 's' : '') : '';
+      if (!remaining) empty.style.display = '';
+    }, 220);
+
+  } catch (e) {
+    el.style.opacity   = '1';
+    el.style.transform = 'none';
+    alert('Could not delete note: ' + e.message);
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+function escHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatRelTime(date) {
+  const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diff < 60)   return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+  if (diff < 86400)return Math.floor(diff / 3600) + ' hr ago';
+  return date.toLocaleDateString();
+}
+
+// ── Auto-load on page ready ───────────────────────────────────────
+document.addEventListener('DOMContentLoaded', loadNotes);
+
 </script>
 
 {% endblock %}

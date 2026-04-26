@@ -1,5 +1,6 @@
+from datetime import datetime, timezone
 import csv, io, json
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request, Body
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -623,3 +624,59 @@ def _keyword_interest(turns):
         engagement=float(min(100, base+5)),
         summary="Interest assessed from conversation keywords.",
     )
+
+
+@app.get("/candidates/{candidate_id}/notes")
+async def get_notes(candidate_id: str):
+    """Return all notes for a candidate, newest first."""
+    try:
+        notes = get_db().load_notes(candidate_id)
+        return {"notes": notes}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/candidates/{candidate_id}/notes")
+async def add_note(
+    candidate_id: str,
+    payload: dict = Body(...),   # expects {"text": "..."}
+):
+    """
+    Save a new note for a candidate.
+    Returns the saved note object (with id + timestamp) so the
+    frontend can prepend it immediately without a full page reload.
+    """
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Note text cannot be empty")
+    if len(text) > 2000:
+        raise HTTPException(status_code=422, detail="Note too long (max 2000 chars)")
+
+    note = {
+        "id":         _note_id(),
+        "text":       text,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        get_db().save_note(candidate_id, note)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    return {"note": note}
+
+
+@app.delete("/candidates/{candidate_id}/notes/{note_id}")
+async def delete_note(candidate_id: str, note_id: str):
+    """Delete a single note by its ID."""
+    try:
+        get_db().delete_note(candidate_id, note_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"ok": True}
+
+
+def _note_id() -> str:
+    """Generate a short unique ID  e.g. 'n_1a2b3c4d'"""
+    import random, string
+    chars = string.ascii_lowercase + string.digits
+    return "n_" + "".join(random.choices(chars, k=8))

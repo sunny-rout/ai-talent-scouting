@@ -45,6 +45,14 @@ class SQLiteDB(BaseDB):
                     data         TEXT NOT NULL,
                     updated_at   TEXT DEFAULT (datetime('now'))
                 );
+                CREATE TABLE IF NOT EXISTS candidate_notes (
+                    note_id      TEXT PRIMARY KEY,
+                    candidate_id TEXT NOT NULL,
+                    text         TEXT NOT NULL,
+                    created_at   TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_notes_candidate
+                    ON candidate_notes(candidate_id);
             """)
 
     def clear_all(self) -> None:
@@ -53,6 +61,7 @@ class SQLiteDB(BaseDB):
                 DELETE FROM kv_store;
                 DELETE FROM match_results;
                 DELETE FROM conversations;
+                DELETE FROM candidate_notes;
             """)
 
     # ── KV helper (private) ───────────────────────────────────────
@@ -123,3 +132,33 @@ class SQLiteDB(BaseDB):
             "llm_provider": self._get("llm_provider", "ollama"),
             "llm_model":    self._get("llm_model",    "llama3"),
         }
+
+    # ── Candidate Notes ───────────────────────────────────────────
+
+    def save_note(self, candidate_id: str, note: dict) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO candidate_notes "
+                "(note_id, candidate_id, text, created_at) VALUES (?, ?, ?, ?)",
+                (note["id"], candidate_id, note["text"], note["created_at"])
+            )
+
+    def load_notes(self, candidate_id: str) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT note_id, text, created_at FROM candidate_notes "
+                "WHERE candidate_id = ? ORDER BY created_at DESC",
+                (candidate_id,)
+            ).fetchall()
+        return [
+            {"id": r["note_id"], "text": r["text"], "created_at": r["created_at"]}
+            for r in rows
+        ]
+
+    def delete_note(self, candidate_id: str, note_id: str) -> None:
+        with self._conn() as c:
+            c.execute(
+                "DELETE FROM candidate_notes WHERE note_id = ? AND candidate_id = ?",
+                (note_id, candidate_id)
+            )
+
