@@ -27,11 +27,13 @@ Recruiters spend hours sifting through profiles and chasing candidate interest. 
 
 - **JD Parsing** — LLM extracts role, required/preferred skills, experience, and must-haves from free-text input
 - **Candidate Matching** — Rule-based scoring across 5 dimensions with explainability chips (skill matches / gaps)
+- **Score Explanation** — LLM narrates why a candidate received their Match or Interest score in plain English (results cached per candidate)
 - **Streaming Conversation** — SSE-streamed 4-turn recruiter ↔ candidate conversation with live token output
 - **Interest Score Analysis** — 4 signals extracted: Enthusiasm, Availability, Compensation Fit, Engagement Quality
 - **Ranked Shortlist** — Final Score = 0.6 × Match + 0.4 × Interest, with full breakdown
-- **Outreach Email Drafts** — LLM-generated personalised email per candidate
-- **Interview Questions** — LLM-generated tailored interview questions per candidate
+- **Outreach Email Drafts** — LLM-generated personalised outreach email per shortlisted candidate
+- **Interview Questions** — LLM-generated role-specific interview questions tailored to each candidate's profile
+- **Candidate Comparison** — Side-by-side comparison of up to 3 candidates across all scoring dimensions
 - **Analytics Dashboard** — Score distribution charts across the matched candidate pool
 - **CSV Export** — One-click export of the full shortlist
 - **SQLite Persistence** — Session state survives server restarts (parsed JD, match results, conversations)
