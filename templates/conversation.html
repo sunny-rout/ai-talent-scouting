@@ -434,32 +434,107 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') closeEmailModal
 
 <script>
 async function runConversation() {
-  const runBtn = document.getElementById('runBtn');
-  const emptyState = document.getElementById('emptyState');
+  const runBtn       = document.getElementById('runBtn');
+  const emptyState   = document.getElementById('emptyState');
   const loadingPanel = document.getElementById('loadingPanel');
-  const chatPanel = document.getElementById('chatPanel');
+  const chatPanel    = document.getElementById('chatPanel');
+  const msgs         = document.getElementById('chatMessages');
 
-  if (runBtn) { runBtn.disabled = true; runBtn.textContent = 'Running…'; }
-  if (emptyState) emptyState.style.display = 'none';
-  loadingPanel.style.display = '';
+  if (runBtn)       runBtn.disabled = true, runBtn.textContent = 'Running\u2026';
+  if (emptyState)   emptyState.style.display   = 'none';
+  if (loadingPanel) loadingPanel.style.display = 'none';
+
+  // Create the live-stream box once; reuse on retries
+  let liveBox = document.getElementById('sseStreamBox');
+  if (!liveBox) {
+    liveBox = document.createElement('div');
+    liveBox.id = 'sseStreamBox';
+    Object.assign(liveBox.style, {
+      background   : '#f8fafc',
+      border       : '1px solid #e2e8f0',
+      borderRadius : '0.75rem',
+      padding      : '1.25rem 1.5rem',
+      fontSize     : '0.82rem',
+      color        : '#1e293b',
+      lineHeight   : '1.75',
+      whiteSpace   : 'pre-wrap',
+      fontFamily   : 'ui-monospace, monospace',
+      minHeight    : '64px',
+      maxHeight    : '360px',
+      overflowY    : 'auto'
+    });
+    chatPanel.style.display = 'flex';
+    chatPanel.insertBefore(liveBox, msgs);
+  }
+  liveBox.textContent = '\u23f3 Connecting to Ollama\u2026';
+  liveBox.style.display = '';
+
+  let rawBuffer = '';
 
   try {
-    const res = await fetch('/run-conversation/{{ candidate.id }}', { method: 'POST' });
+    const res = await fetch('/stream-conversation/{{ candidate.id }}', {
+      method: 'POST',
+      headers: { 'Accept': 'text/event-stream' }
+    });
+
     if (!res.ok) {
-      const err = await res.text();
-      throw new Error(err);
+      const errText = await res.text();
+      throw new Error('HTTP ' + res.status + ': ' + errText);
     }
-    const data = await res.json();
-    loadingPanel.style.display = 'none';
-    renderConversation(data);
-  } catch(e) {
-    loadingPanel.style.display = 'none';
-    if (emptyState) emptyState.style.display = '';
-    if (runBtn) { runBtn.disabled = false; runBtn.textContent = '▶ Run Conversation'; }
-    alert('Error running conversation: ' + e.message + '\n\nMake sure Ollama is running and the model is available.');
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      sseBuffer += decoder.decode(value, { stream: true });
+
+      // SSE frames are delimited by \n\n
+      const frames = sseBuffer.split('\n\n');
+      sseBuffer = frames.pop(); // keep incomplete tail
+
+      for (const frame of frames) {
+        const trimmed = frame.trim();
+        if (!trimmed.startsWith('data:')) continue;
+
+        let payload;
+        try   { payload = JSON.parse(trimmed.slice(5).trim()); }
+        catch { continue; }
+
+        if (payload.type === 'start') {
+          liveBox.textContent = '\u2328\ufe0f Generating conversation\u2026\n\n';
+
+        } else if (payload.type === 'token') {
+          rawBuffer += payload.text;
+          liveBox.textContent  = rawBuffer;
+          liveBox.scrollTop    = liveBox.scrollHeight;
+
+        } else if (payload.type === 'done') {
+          liveBox.style.display = 'none';
+          msgs.innerHTML = '';
+          renderConversation(payload.conversation);
+
+        } else if (payload.type === 'error') {
+          throw new Error(payload.message || 'Unknown stream error');
+        }
+      }
+    }
+
+  } catch (err) {
+    liveBox.style.display = 'none';
+    if (loadingPanel) loadingPanel.style.display = 'none';
+    if (emptyState)   emptyState.style.display   = '';
+    if (runBtn) {
+      runBtn.disabled    = false;
+      runBtn.textContent = '\u25b6 Run Conversation';
+    }
+    console.error('[runConversation]', err);
+    alert('Error: ' + err.message + '\n\nCheck:\n1. Is Ollama running? (ollama serve)\n2. Model available? (ollama list)');
   }
 }
-
 function renderConversation(data) {
   const chatPanel = document.getElementById('chatPanel');
   const msgs = document.getElementById('chatMessages');
@@ -482,6 +557,11 @@ function renderConversation(data) {
   });
 
   const ia = data.interest_analysis;
+  if (!ia || typeof ia.total === 'undefined') {
+    console.error('[renderConversation] Missing interest_analysis:', data);
+    alert('Conversation completed but interest scoring failed. Please try again.');
+    return;
+  }
   const icolor = ia.total >= 75 ? 'green' : ia.total >= 50 ? 'yellow' : 'red';
   const matchScore = {{ match_result.match_score if match_result else 50 }};
   const finalScore = (0.6 * matchScore + 0.4 * ia.total).toFixed(1);

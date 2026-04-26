@@ -372,3 +372,254 @@ async def analytics_dashboard(request: Request):
         "funnel":          funnel,
         "top_candidates":  top_candidates,
     })
+
+from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
+import json as _j, re, traceback
+
+# ── AsyncOpenAI client pointed at Ollama's OpenAI-compatible endpoint ──────
+# WHY AsyncOpenAI (not OpenAI)?
+#   FastAPI is async. If we use sync OpenAI() it blocks the event loop while
+#   waiting for LLM tokens — no other requests can run. AsyncOpenAI is
+#   non-blocking: the event loop handles other requests between token yields.
+_ollama = AsyncOpenAI(
+    base_url="http://localhost:11434/v1",
+    api_key="ollama",   # Ollama ignores the key but the SDK requires it
+)
+OLLAMA_MODEL_THINK = "qwen3.5"  # run `ollama list` to confirm your model name
+
+
+@app.post("/stream-conversation/{candidate_id}")
+async def stream_conversation(candidate_id: str):
+    print(f"[stream] >>> POST /stream-conversation/{candidate_id}")
+
+    # ── validate ──
+    print(f"[stream] Validating candidate_id={candidate_id}")
+    match_result = next(
+        (r for r in STATE.get("match_results", [])
+         if r.candidate.id == candidate_id), None
+    )
+    if not match_result:
+        print(f"[stream] ERROR: Candidate {candidate_id} not found in STATE")
+        print(f"[stream] Available candidates: {[r.candidate.id for r in STATE.get('match_results', [])]}")
+        raise HTTPException(status_code=404, detail="Candidate not found in STATE")
+    print(f"[stream] OK: Found candidate {match_result.candidate.name}")
+
+    parsed_jd = STATE.get("parsed_jd")
+    if not parsed_jd:
+        print(f"[stream] ERROR: No parsed JD in STATE")
+        raise HTTPException(status_code=400, detail="No JD parsed yet — run JD parsing first")
+    print(f"[stream] OK: JD role={parsed_jd.role}")
+
+    candidate = match_result.candidate
+    print(f"[stream] Starting conversation for {candidate.name} ({candidate.title} at {candidate.company})")
+
+    # ── conversation prompt ──
+    prompt = f"""You are an AI recruiter doing a brief realistic outreach conversation.
+
+Role: {parsed_jd.role}
+Required skills: {", ".join(parsed_jd.required_skills[:6])}
+
+Candidate: {candidate.name}
+Current title: {candidate.title} at {candidate.company}
+Their skills: {", ".join(candidate.skills[:8])}
+Match score: {match_result.match_score:.0f}%
+Skill gaps: {", ".join(match_result.skill_gaps[:3]) if match_result.skill_gaps else "none"}
+
+Write a 4-turn conversation. Use EXACTLY this format (no blank lines between turns):
+Recruiter: [message]
+Candidate: [message]
+Recruiter: [message]
+Candidate: [message]
+
+Keep each turn 1-3 sentences. Sound natural, specific to this candidate's background."""
+
+    # ── SSE generator (async generator function) ──────────────────────────
+    # WHY an inner generator?
+    #   StreamingResponse needs an iterator/generator. By making it async,
+    #   we can `await` the Ollama stream and `yield` each chunk to the browser
+    #   without blocking. The browser receives each `yield` immediately.
+    async def event_stream():
+        full_text = ""
+        token_count = 0
+
+        # ════════════════════════════════════════════════════════════════
+        # PHASE 1: Stream conversation tokens  (FATAL — if this fails,
+        #          we abort with an error event so the frontend can show it)
+        # ════════════════════════════════════════════════════════════════
+        try:
+            print(f"[stream] Phase 1: Starting LLM stream with model={OLLAMA_MODEL}")
+            # Tell frontend streaming has started
+            yield f"data: {_j.dumps({'type': 'start'})}\n\n"
+
+            # stream=True → AsyncOpenAI returns an async iterator of chunks
+            print(f"[stream] Calling _ollama.chat.completions.create(stream=True)...")
+            stream = await _ollama.chat.completions.create(
+                model=OLLAMA_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                stream=True,        # ← streaming: yields tokens as they arrive
+                max_tokens=700,
+                temperature=0.72,
+            )
+            print(f"[stream] Stream object received, iterating...")
+            async for chunk in stream:
+                # Each chunk has one small piece of text (sometimes empty)
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    full_text += delta
+                    token_count += 1
+                    # Send this token to the browser right now
+                    yield f"data: {_j.dumps({'type': 'token', 'text': delta})}\n\n"
+            print(f"[stream] Phase 1 complete: received {token_count} tokens")
+
+        except Exception as exc:
+            print(f"[stream] Phase 1 failed:\n{traceback.format_exc()}")
+            yield f"data: {_j.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            return  # stop the generator — no point scoring an empty conversation
+
+        # ════════════════════════════════════════════════════════════════
+        # PHASE 2: Score interest  (NON-FATAL — has keyword fallback)
+        # Runs AFTER all tokens are received. Never crashes the response.
+        # ════════════════════════════════════════════════════════════════
+        print(f"[stream] Phase 2: Parsing turns from {len(full_text)} chars")
+        turns    = _parse_turns(full_text)
+        print(f"[stream] Parsed {len(turns)} turns: {[t.role for t in turns]}")
+        print(f"[stream] Calling _score_interest...")
+        interest = await _score_interest(turns, parsed_jd, candidate)
+        print(f"[stream] Interest score: total={interest.total}, enthusiasm={interest.enthusiasm}")
+
+        # ════════════════════════════════════════════════════════════════
+        # PHASE 3: Save to STATE + DB, send the final "done" event
+        # The "done" payload contains the full conversation object.
+        # Frontend uses this to render proper chat bubbles & score panel.
+        # ════════════════════════════════════════════════════════════════
+        try:
+            print(f"[stream] Phase 3: Saving conversation to STATE and DB")
+            from app.models import ConversationResult
+            conv = ConversationResult(
+                candidate_id=candidate_id,
+                turns=turns,
+                interest_analysis=interest,
+                raw_text=full_text,
+            )
+            STATE.setdefault("conversations", {})[candidate_id] = conv
+            print(f"[stream] Saved to STATE[candidate_id]")
+            try:                          # DB save is best-effort
+                get_db().save_conversation(candidate_id, conv.model_dump())
+                print(f"[stream] Saved to DB")
+            except Exception as db_exc:
+                print(f"[stream] DB save failed: {db_exc}")
+            yield f"data: {_j.dumps({'type': 'done', 'conversation': conv.model_dump()})}\n\n"
+            print(f"[stream] Phase 3 complete: sent 'done' event to client")
+
+        except Exception as exc:
+            print(f"[stream] Phase 3 failed:\n{traceback.format_exc()}")
+            yield f"data: {_j.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+
+    # ── return a StreamingResponse — NOT a regular JSONResponse ──────────
+    # WHY these headers?
+    #   Cache-Control: no-cache  → browser must not buffer or cache SSE
+    #   X-Accel-Buffering: no    → tells Nginx NOT to buffer (critical for live streaming)
+    #   Connection: keep-alive   → keep the HTTP connection open until generator ends
+    print(f"[stream] <<< Returning StreamingResponse")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":     "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":        "keep-alive",
+        },
+    )
+
+
+# ── helper: parse raw LLM text into ConversationTurn objects ───────────────
+# WHY parse at all?  The LLM returns plain text like "Recruiter: Hello\n..."
+# We need structured objects so the frontend can render proper chat bubbles
+# and the scorer can look at just the candidate's words.
+def _parse_turns(raw: str) -> list:
+    from app.models import ConversationTurn
+    turns = []
+    for line in raw.strip().splitlines():
+        s = line.strip()
+        if s.lower().startswith("recruiter:"):
+            turns.append(ConversationTurn(role="recruiter", message=s[10:].strip()))
+        elif s.lower().startswith("candidate:"):
+            turns.append(ConversationTurn(role="candidate", message=s[10:].strip()))
+    return turns
+
+# ── helper: score interest from conversation using Ollama ──────────────────
+# WHY a SEPARATE non-streaming call for scoring?
+#   We need the COMPLETE candidate text before we can score it.
+#   Can't score mid-stream. So we wait for Phase 1 to finish, then
+#   make a second, non-streaming call (stream=False) to get JSON scores.
+# WHY a fallback?
+#   If the LLM returns malformed JSON or fails, we still need a score.
+#   Rule-based keyword matching always works, costs nothing, never crashes.
+async def _score_interest(turns, parsed_jd, candidate):
+    from app.models import InterestAnalysis
+
+    candidate_lines = "\n".join(
+        f"  {t.message}" for t in turns if t.role == "candidate"
+    ) or "(no candidate responses)"
+
+    prompt = f"""Analyze this candidate's interest in a job offer from their replies.
+
+Candidate: {candidate.name}
+Role offered: {parsed_jd.role}
+
+Candidate's replies:
+{candidate_lines}
+
+Return ONLY valid JSON. No explanation, no markdown, just the JSON object:
+{{
+  "enthusiasm":       <integer 0-100>,
+  "availability":     <integer 0-100>,
+  "compensation_fit": <integer 0-100>,
+  "engagement":       <integer 0-100>,
+  "summary":          "<one short sentence>"
+}}"""
+
+    try:
+        # stream=False → wait for the complete response, then parse JSON
+        resp = await _ollama.chat.completions.create(
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,       # ← non-streaming: we need full text to parse JSON
+            temperature=0.2,    # ← low temp: we want consistent structured output
+            max_tokens=150,
+        )
+        text = resp.choices[0].message.content or ""
+        m    = re.search(r'\{.*\}', text, re.DOTALL)
+        if not m:
+            raise ValueError(f"No JSON in response: {text[:120]}")
+        d = _j.loads(m.group())
+        e  = float(d.get("enthusiasm",       60))
+        av = float(d.get("availability",     60))
+        cf = float(d.get("compensation_fit", 60))
+        eq = float(d.get("engagement",       60))
+        total = round((e + av + cf + eq) / 4, 1)
+        return InterestAnalysis(
+            total=total, enthusiasm=e, availability=av,
+            compensation_fit=cf, engagement=eq,
+            summary=str(d.get("summary", "Interest assessed via LLM.")),
+        )
+    except Exception as exc:
+        # NEVER let scoring crash the whole response — use fallback
+        print(f"[_score_interest] LLM failed → using keyword fallback. Reason: {exc}")
+        return _keyword_interest(turns)
+
+def _keyword_interest(turns):
+    from app.models import InterestAnalysis
+    text = " ".join(t.message.lower() for t in turns if t.role == "candidate")
+    pos  = ["interested","love to","sounds great","excited","open to",
+            "definitely","would love","happy to","yes","great opportunity","keen"]
+    neg  = ["not interested","not looking","not a good fit","no thanks","decline"]
+    base = min(95, max(20, 50 + sum(10 for w in pos if w in text)
+                              - sum(18 for w in neg if w in text)))
+    return InterestAnalysis(
+        total=float(base), enthusiasm=float(min(100, base+8)),
+        availability=float(min(100, base+2)), compensation_fit=60.0,
+        engagement=float(min(100, base+5)),
+        summary="Interest assessed from conversation keywords.",
+    )
