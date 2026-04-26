@@ -83,3 +83,92 @@ def simulate_conversation(candidate: Candidate, jd: ParsedJD, llm: LLMProvider) 
         )
     except Exception:
         return _fallback(candidate, jd)
+
+
+# ── Streaming helpers ────────────────────────────────────────────────
+# Used by app/routes/conversation.py for SSE streaming.
+# Kept here so they can be unit-tested independently.
+
+def parse_turns(raw: str) -> list[ConversationTurn]:
+    """Parse LLM plain-text output into ConversationTurn objects."""
+    turns = []
+    for line in raw.strip().splitlines():
+        s = line.strip()
+        if s.lower().startswith("recruiter:"):
+            turns.append(ConversationTurn(role="recruiter", message=s[10:].strip()))
+        elif s.lower().startswith("candidate:"):
+            turns.append(ConversationTurn(role="candidate", message=s[10:].strip()))
+    return turns
+
+
+async def score_interest(
+    turns: list[ConversationTurn],
+    parsed_jd: ParsedJD,
+    candidate: Candidate,
+    ollama_client,  # AsyncOpenAI instance
+    model: str,
+) -> InterestAnalysis:
+    """Score interest via LLM with keyword-based fallback on failure."""
+    candidate_lines = "\n".join(
+        f"  {t.message}" for t in turns if t.role == "candidate"
+    ) or "(no candidate responses)"
+
+    prompt = f"""Analyze this candidate's interest in a job offer from their replies.
+
+Candidate: {candidate.name}
+Role offered: {parsed_jd.role}
+
+Candidate's replies:
+{candidate_lines}
+
+Return ONLY valid JSON. No explanation, no markdown, just the JSON object:
+{{
+  "enthusiasm":       <integer 0-100>,
+  "availability":     <integer 0-100>,
+  "compensation_fit": <integer 0-100>,
+  "engagement":       <integer 0-100>,
+  "summary":          "<one short sentence>"
+}}"""
+
+    try:
+        resp = await ollama_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
+            temperature=0.2,
+            max_tokens=150,
+        )
+        text = resp.choices[0].message.content or ""
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if not m:
+            raise ValueError(f"No JSON in response: {text[:120]}")
+        d = json.loads(m.group())
+        e = float(d.get("enthusiasm", 60))
+        av = float(d.get("availability", 60))
+        cf = float(d.get("compensation_fit", 60))
+        en = float(d.get("engagement", 60))
+        total = round((e + av + cf + en) / 4, 1)
+        return InterestAnalysis(
+            total=total, enthusiasm=e, availability=av,
+            compensation_fit=cf, engagement=en,
+            summary=str(d.get("summary", "Interest assessed via LLM.")),
+        )
+    except Exception as exc:
+        print(f"[score_interest] LLM failed → keyword fallback. Reason: {exc}")
+        return _keyword_interest(turns)
+
+
+def _keyword_interest(turns: list[ConversationTurn]) -> InterestAnalysis:
+    """Rule-based fallback when LLM scoring fails. Never crashes."""
+    text = " ".join(t.message.lower() for t in turns if t.role == "candidate")
+    pos = ["interested", "love to", "sounds great", "excited", "open to",
+           "definitely", "would love", "happy to", "yes", "great opportunity", "keen"]
+    neg = ["not interested", "not looking", "not a good fit", "no thanks", "decline"]
+    base = min(95, max(20, 50 + sum(10 for w in pos if w in text)
+                              - sum(18 for w in neg if w in text)))
+    return InterestAnalysis(
+        total=float(base), enthusiasm=float(min(100, base + 8)),
+        availability=float(min(100, base + 2)), compensation_fit=60.0,
+        engagement=float(min(100, base + 5)),
+        summary="Interest assessed from conversation keywords.",
+    )
