@@ -1,7 +1,7 @@
 """
 LLM-powered content generation.
-POST /generate-email/{candidate_id}     — personalised outreach email
-POST /generate-questions/{candidate_id} — personalised interview questions
+POST /generate/email/{candidate_id}     — personalised outreach email
+POST /generate/questions/{candidate_id} — personalised interview questions
 """
 from __future__ import annotations
 

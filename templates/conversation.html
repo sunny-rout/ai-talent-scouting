@@ -175,7 +175,7 @@ let _emailData = null;
 function openEmailModal(id) {
   document.getElementById('emailModal').style.display = 'flex';
   _showState('loading');
-  fetch('/generate-email/' + id, { method:'POST' })
+  fetch('/generate/email/' + id, { method:'POST' })
     .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail||'Error'); }))
     .then(data => { _emailData = data; _renderEmail(data); })
     .catch(e  => { _showState('error'); document.getElementById('emailErrorMsg').textContent = e.message; });
@@ -188,7 +188,7 @@ function closeEmailModal() {
 function regenerateEmail(id) {
   _emailData = null;
   _showState('loading');
-  fetch('/generate-email/' + id, { method:'POST' })
+  fetch('/generate/email/' + id, { method:'POST' })
     .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail||'Error'); }))
     .then(data => { _emailData = data; _renderEmail(data); })
     .catch(e  => { _showState('error'); document.getElementById('emailErrorMsg').textContent = e.message; });
@@ -873,7 +873,7 @@ let _emailData = null;
 function openEmailModal(id) {
   document.getElementById('emailModal').style.display = 'flex';
   _showState('loading');
-  fetch('/generate-email/' + id, { method:'POST' })
+  fetch('/generate/email/' + id, { method:'POST' })
     .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail||'Error'); }))
     .then(data => { _emailData = data; _renderEmail(data); })
     .catch(e  => { _showState('error'); document.getElementById('emailErrorMsg').textContent = e.message; });
@@ -886,7 +886,7 @@ function closeEmailModal() {
 function regenerateEmail(id) {
   _emailData = null;
   _showState('loading');
-  fetch('/generate-email/' + id, { method:'POST' })
+  fetch('/generate/email/' + id, { method:'POST' })
     .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail||'Error'); }))
     .then(data => { _emailData = data; _renderEmail(data); })
     .catch(e  => { _showState('error'); document.getElementById('emailErrorMsg').textContent = e.message; });
@@ -1118,7 +1118,7 @@ const IQ_LABELS = {
 async function openIQModal(id) {
   document.getElementById('iqModal').style.display = 'flex';
   _iqShowState('loading');
-  fetch('/generate-questions/' + id, { method:'POST' })
+  fetch('/generate/questions/' + id, { method:'POST' })
     .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail||'Error'); }))
     .then(data => { _iqData = data; _renderIQ(data); })
     .catch(e  => { _iqShowState('error'); document.getElementById('iqErrorMsg').textContent = e.message; });
@@ -1129,7 +1129,7 @@ function closeIQModal() { document.getElementById('iqModal').style.display = 'no
 async function regenIQ(id) {
   _iqData = null;
   _iqShowState('loading');
-  fetch('/generate-questions/' + id, { method:'POST' })
+  fetch('/generate/questions/' + id, { method:'POST' })
     .then(r => r.ok ? r.json() : r.json().then(e => { throw new Error(e.detail||'Error'); }))
     .then(data => { _iqData = data; _renderIQ(data); })
     .catch(e  => { _iqShowState('error'); document.getElementById('iqErrorMsg').textContent = e.message; });
