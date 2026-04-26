@@ -16,6 +16,8 @@ All other routes live in app/routes/ and receive shared state via Depends().
 """
 from contextlib import asynccontextmanager
 import json
+import logging
+import time
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -31,6 +33,19 @@ from app.db import get_db
 from app.state import AppState
 from app.routes import analytics, candidates, conversation, export, generate, shortlist
 
+# ── Logging ───────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("talentscout")
+
+# Quiet noisy third-party loggers
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 # ── Global state (lifespan-managed) ──────────────────────────────────
 app_state: AppState = AppState()
@@ -42,16 +57,18 @@ app_state: AppState = AppState()
 async def lifespan(app: FastAPI):
     db = get_db("sqlite")
     db.init()
+    logger.info("Database initialised")
 
     # Restore state from SQLite
     global app_state
     app_state = AppState.from_db()
+    logger.info("State restored from DB (provider=%s model=%s)", app_state.llm_provider, app_state.llm_model)
 
     yield  # app is live here
 
     # Persist on shutdown
     app_state.persist()
-    print("[DB] Shutdown.")
+    logger.info("State persisted — shutdown complete")
 
 
 # ── App setup ────────────────────────────────────────────────────────
@@ -64,6 +81,20 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 with open("data/candidates.json") as f:
     CANDIDATE_POOL = [Candidate(**c) for c in json.load(f)]
 CANDIDATE_MAP = {c.id: c for c in CANDIDATE_POOL}
+logger.info("Candidate pool loaded (%d candidates)", len(CANDIDATE_POOL))
+
+
+# ── Request logging middleware ────────────────────────────────────────
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    ms = (time.perf_counter() - start) * 1000
+    # Skip static assets to keep logs clean
+    if not request.url.path.startswith("/static"):
+        logger.info("%s %s %d  %.0fms", request.method, request.url.path, response.status_code, ms)
+    return response
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -101,9 +132,11 @@ async def post_parse_jd(
     state.conversations = {}
     state.shortlist = []
 
+    logger.info("Parsing JD (provider=%s model=%s len=%d)", provider, model, len(jd_text))
     try:
         parsed = parse_jd(jd_text, state.llm())
     except Exception as e:
+        logger.error("JD parse failed: %s", e)
         return templates.TemplateResponse("index.html", {
             "request": request,
             "error": str(e),
@@ -113,6 +146,7 @@ async def post_parse_jd(
 
     state.parsed_jd = parsed
     state.match_results = rank_candidates(CANDIDATE_POOL, parsed)
+    logger.info("JD parsed: role=%s candidates ranked=%d", parsed.role, len(state.match_results))
     return templates.TemplateResponse("candidates.html", {
         "request": request,
         "parsed_jd": parsed,
@@ -184,8 +218,10 @@ async def explain_score(payload: dict, state: AppState = Depends(_get_state)):
 
     cache_key = payload.get("candidate_id", "?") + "_" + payload.get("score_type", "match")
     if cache_key in _explain_cache:
+        logger.debug("explain-score cache hit: %s", cache_key)
         return {"explanation": _explain_cache[cache_key], "cached": True}
 
+    logger.info("Generating score explanation for %s", cache_key)
     explanation = _explain_score(payload, state.llm())
     _explain_cache[cache_key] = explanation
     return {"explanation": explanation, "cached": False}
@@ -195,7 +231,9 @@ async def explain_score(payload: dict, state: AppState = Depends(_get_state)):
 async def health_llm(state: AppState = Depends(_get_state)):
     try:
         result = state.llm().health_check()
+        logger.info("LLM health check: status=%s latency=%sms", result.get("status"), result.get("latency_ms"))
     except Exception as exc:
+        logger.error("LLM health check failed: %s", exc)
         result = {
             "status":     "error",
             "provider":   "unknown",
@@ -220,4 +258,5 @@ app.include_router(export.router)
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("Starting TalentScout AI on http://0.0.0.0:8000")
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
