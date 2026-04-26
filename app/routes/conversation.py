@@ -15,7 +15,7 @@ from app.conversation import parse_turns, score_interest, simulate_conversation
 from app.models import ConversationResult, ConversationTurn, InterestAnalysis
 from app.state import AppState
 
-router = APIRouter(prefix="/conversation", tags=["conversation"])
+router = APIRouter(tags=["conversation"])
 
 OLLAMA_MODEL_THINK = "qwen3.5"
 _ollama = AsyncOpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
