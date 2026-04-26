@@ -75,7 +75,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TalentScout AI", version="1.0.0", lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
+import os as _os
+if _os.path.isdir("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Load candidate pool once at startup
 with open("data/candidates.json") as f:
