@@ -6,7 +6,7 @@
 
 **Takes a Job Description as input → discovers matching candidates → engages them conversationally → outputs a ranked shortlist scored on Match Score + Interest Score.**
 
-[Quick Start](#quick-start) · [Architecture](#architecture) · [Scoring Logic](#scoring-logic) · [API Reference](#api-reference)
+[Demo Video](#demo-video) . [Quick Start](#quick-start) · [Architecture](#architecture) · [Scoring Logic](#scoring-logic) · [API Reference](#api-reference)
 
 </div>
 
@@ -39,6 +39,10 @@ Recruiters spend hours sifting through profiles and chasing candidate interest. 
 - **SQLite Persistence** — Session state survives server restarts (parsed JD, match results, conversations)
 - **Provider Abstraction** — Swap between Ollama (local, free) and Google Vertex AI (Gemini) via `.env`
 
+---
+## Demo Video
+
+> 📹 [Watch the walkthrough here](https://www.loom.com/share/826f9907cae14cd6a5b08b376ffb39f8)
 ---
 
 ## Quick Start
