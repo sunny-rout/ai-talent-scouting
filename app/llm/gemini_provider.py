@@ -2,8 +2,9 @@
 Google AI Studio provider — uses the Gemini REST API with an API key.
 Requires: google-generativeai
 """
+import asyncio
 import time
-from typing import List, Dict
+from typing import AsyncGenerator, List, Dict
 
 from .base import LLMProvider
 
@@ -21,24 +22,44 @@ class GeminiProvider(LLMProvider):
             self._client = genai.GenerativeModel(self.model)
         return self._client
 
+    def _build_history(self, messages: List[Dict[str, str]]):
+        """Convert OpenAI-style messages to Gemini history + last message."""
+        history = []
+        for m in messages[:-1]:
+            role = "model" if m["role"] == "assistant" else "user"
+            history.append({"role": role, "parts": [m["content"]]})
+        last = messages[-1]["parts"][0] if isinstance(messages[-1].get("parts"), list) \
+            else messages[-1]["content"]
+        return history, last
+
     def chat(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
         import google.generativeai as genai
         client = self._get_client()
-
-        # Map OpenAI-style roles to Gemini roles (user/model only)
-        history = []
-        last_user_msg = None
-        for m in messages:
-            role = "model" if m["role"] == "assistant" else "user"
-            if role == "user":
-                last_user_msg = m["content"]
-            history.append({"role": role, "parts": [m["content"]]})
-
-        # Start fresh chat each call (stateless usage matches existing pattern)
-        chat = client.start_chat(history=history[:-1] if len(history) > 1 else [])
+        history, last_msg = self._build_history(messages)
+        chat = client.start_chat(history=history)
         cfg = genai.types.GenerationConfig(temperature=temperature, max_output_tokens=2048)
-        resp = chat.send_message(history[-1]["parts"][0], generation_config=cfg)
+        resp = chat.send_message(last_msg, generation_config=cfg)
         return resp.text
+
+    async def stream_chat(
+        self, messages: List[Dict[str, str]], temperature: float = 0.7
+    ) -> AsyncGenerator[str, None]:
+        import google.generativeai as genai
+        client = self._get_client()
+        history, last_msg = self._build_history(messages)
+        cfg = genai.types.GenerationConfig(temperature=temperature, max_output_tokens=2048)
+        chat = client.start_chat(history=history)
+
+        # google-generativeai streaming is synchronous — run in executor
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: chat.send_message(last_msg, generation_config=cfg, stream=True),
+        )
+        for chunk in response:
+            text = getattr(chunk, "text", "") or ""
+            if text:
+                yield text
 
     def health_check(self) -> dict:
         base = {"provider": "gemini", "model": self.model}

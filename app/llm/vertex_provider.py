@@ -2,8 +2,9 @@
 Google Vertex AI provider — uses Application Default Credentials (ADC).
 Requires: google-cloud-aiplatform
 """
+import asyncio
 import time
-from typing import List, Dict
+from typing import AsyncGenerator, List, Dict
 
 from .base import LLMProvider
 
@@ -31,6 +32,27 @@ class VertexProvider(LLMProvider):
         )
         cfg = GenerationConfig(temperature=temperature, max_output_tokens=2048)
         return model.generate_content(prompt, generation_config=cfg).text
+
+    async def stream_chat(
+        self, messages: List[Dict[str, str]], temperature: float = 0.7
+    ) -> AsyncGenerator[str, None]:
+        from vertexai.generative_models import GenerationConfig
+        model = self._get_client()
+        prompt = "\n\n".join(
+            f"[{m['role'].capitalize()}]: {m['content']}" for m in messages
+        )
+        cfg = GenerationConfig(temperature=temperature, max_output_tokens=700)
+
+        # Vertex streaming is synchronous — run in executor
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: model.generate_content(prompt, generation_config=cfg, stream=True),
+        )
+        for chunk in response:
+            text = getattr(chunk, "text", "") or ""
+            if text:
+                yield text
 
     def health_check(self) -> dict:
         base = {"provider": "vertex", "model": self.model_name}

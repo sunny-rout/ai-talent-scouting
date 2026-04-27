@@ -1,4 +1,7 @@
-import json, re
+import asyncio
+import json
+import re
+
 from app.models import Candidate, ParsedJD, ConversationResult, ConversationTurn, InterestAnalysis
 from app.llm.base import LLMProvider
 
@@ -31,19 +34,27 @@ Return ONLY this JSON (no markdown):
   }}
 }}"""
 
+
 def _extract_json(text):
     text = text.strip()
-    try: return json.loads(text)
-    except: pass
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
     m = re.search(r"```(?:json)?\s*([\s\S]+?)```", text)
     if m:
-        try: return json.loads(m.group(1).strip())
-        except: pass
+        try:
+            return json.loads(m.group(1).strip())
+        except Exception:
+            pass
     m = re.search(r"\{[\s\S]+\}", text)
     if m:
-        try: return json.loads(m.group(0))
-        except: pass
+        try:
+            return json.loads(m.group(0))
+        except Exception:
+            pass
     raise ValueError("No JSON found")
+
 
 def _fallback(candidate, jd):
     turns = [
@@ -55,6 +66,7 @@ def _fallback(candidate, jd):
     ia = InterestAnalysis(enthusiasm=16, availability=15, compensation_fit=14, engagement=15, total=60.0, summary="Candidate showed moderate professional interest.")
     return ConversationResult(candidate_id=candidate.id, turns=turns, interest_analysis=ia)
 
+
 def simulate_conversation(candidate: Candidate, jd: ParsedJD, llm: LLMProvider) -> ConversationResult:
     prompt = PROMPT.format(
         role=jd.role, required_skills=", ".join(jd.required_skills),
@@ -65,29 +77,27 @@ def simulate_conversation(candidate: Candidate, jd: ParsedJD, llm: LLMProvider) 
         personality=candidate.personality,
     )
     try:
-        raw  = llm.chat([
-            {"role":"system","content":"Generate realistic recruitment conversations. Return only valid JSON."},
-            {"role":"user","content":prompt}
+        raw = llm.chat([
+            {"role": "system", "content": "Generate realistic recruitment conversations. Return only valid JSON."},
+            {"role": "user", "content": prompt},
         ], temperature=0.75)
         data = _extract_json(raw)
         turns = [ConversationTurn(**t) for t in data["turns"][:4]]
-        ia    = data["interest_analysis"]
-        e, a, c, en = float(ia.get("enthusiasm",15)), float(ia.get("availability",15)), float(ia.get("compensation_fit",15)), float(ia.get("engagement",15))
+        ia = data["interest_analysis"]
+        e, a, c, en = float(ia.get("enthusiasm", 15)), float(ia.get("availability", 15)), float(ia.get("compensation_fit", 15)), float(ia.get("engagement", 15))
         return ConversationResult(
             candidate_id=candidate.id, turns=turns,
             interest_analysis=InterestAnalysis(
                 enthusiasm=e, availability=a, compensation_fit=c, engagement=en,
-                total=round(min(100.0, e+a+c+en), 1),
-                summary=ia.get("summary",""),
+                total=round(min(100.0, e + a + c + en), 1),
+                summary=ia.get("summary", ""),
             )
         )
     except Exception:
         return _fallback(candidate, jd)
 
 
-# ── Streaming helpers ────────────────────────────────────────────────
-# Used by app/routes/conversation.py for SSE streaming.
-# Kept here so they can be unit-tested independently.
+# ── Streaming helpers ─────────────────────────────────────────────────────────
 
 def parse_turns(raw: str) -> list[ConversationTurn]:
     """Parse LLM plain-text output into ConversationTurn objects."""
@@ -105,10 +115,13 @@ async def score_interest(
     turns: list[ConversationTurn],
     parsed_jd: ParsedJD,
     candidate: Candidate,
-    ollama_client,  # AsyncOpenAI instance
-    model: str,
+    llm: LLMProvider,
 ) -> InterestAnalysis:
-    """Score interest via LLM with keyword-based fallback on failure."""
+    """
+    Score interest via the provider-agnostic llm.chat() interface.
+    Runs the synchronous chat() call in a thread executor so it never blocks the event loop.
+    Falls back to keyword scoring on any failure.
+    """
     candidate_lines = "\n".join(
         f"  {t.message}" for t in turns if t.role == "candidate"
     ) or "(no candidate responses)"
@@ -131,19 +144,16 @@ Return ONLY valid JSON. No explanation, no markdown, just the JSON object:
 }}"""
 
     try:
-        resp = await ollama_client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            stream=False,
-            temperature=0.2,
-            max_tokens=150,
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(
+            None,
+            lambda: llm.chat([{"role": "user", "content": prompt}], temperature=0.2),
         )
-        text = resp.choices[0].message.content or ""
         m = re.search(r"\{.*\}", text, re.DOTALL)
         if not m:
             raise ValueError(f"No JSON in response: {text[:120]}")
         d = json.loads(m.group())
-        e = float(d.get("enthusiasm", 60))
+        e  = float(d.get("enthusiasm", 60))
         av = float(d.get("availability", 60))
         cf = float(d.get("compensation_fit", 60))
         en = float(d.get("engagement", 60))
@@ -159,7 +169,7 @@ Return ONLY valid JSON. No explanation, no markdown, just the JSON object:
 
 
 def _keyword_interest(turns: list[ConversationTurn]) -> InterestAnalysis:
-    """Rule-based fallback when LLM scoring fails. Never crashes."""
+    """Rule-based fallback when LLM scoring fails."""
     text = " ".join(t.message.lower() for t in turns if t.role == "candidate")
     pos = ["interested", "love to", "sounds great", "excited", "open to",
            "definitely", "would love", "happy to", "yes", "great opportunity", "keen"]
