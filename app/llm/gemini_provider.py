@@ -51,7 +51,7 @@ class GeminiProvider(LLMProvider):
         chat = client.start_chat(history=history)
 
         # google-generativeai streaming is synchronous — run in executor
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: chat.send_message(last_msg, generation_config=cfg, stream=True),

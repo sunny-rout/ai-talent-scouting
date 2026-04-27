@@ -1,5 +1,4 @@
 import time
-import json
 from typing import AsyncGenerator, List, Dict
 
 import httpx
@@ -27,29 +26,23 @@ class OllamaProvider(LLMProvider):
     async def stream_chat(
         self, messages: List[Dict[str, str]], temperature: float = 0.7
     ) -> AsyncGenerator[str, None]:
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": True,
-            "options": {"temperature": temperature},
-        }
-        async with httpx.AsyncClient(timeout=120) as client:
-            async with client.stream(
-                "POST", f"{self.base_url}/api/chat", json=payload
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    try:
-                        data = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    token = data.get("message", {}).get("content", "")
-                    if token:
-                        yield token
-                    if data.get("done"):
-                        break
+        # Use Ollama's OpenAI-compatible endpoint for reliable streaming
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(
+            base_url=f"{self.base_url}/v1",
+            api_key="ollama",
+        )
+        stream = await client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=700,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
 
     def health_check(self) -> dict:
         base = {"provider": "ollama", "model": self.model}

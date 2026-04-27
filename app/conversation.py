@@ -144,7 +144,7 @@ Return ONLY valid JSON. No explanation, no markdown, just the JSON object:
 }}"""
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         text = await loop.run_in_executor(
             None,
             lambda: llm.chat([{"role": "user", "content": prompt}], temperature=0.2),

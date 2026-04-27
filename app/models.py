@@ -51,7 +51,7 @@ class ConversationResult(BaseModel):
     candidate_id: str
     turns: List[ConversationTurn]
     interest_analysis: InterestAnalysis
-    raw_text: str
+    raw_text: str = ""
 
 class ShortlistEntry(BaseModel):
     rank: int

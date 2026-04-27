@@ -87,7 +87,9 @@ Keep each turn 1-3 sentences. Sound natural, specific to this candidate's backgr
                 full_text += token
                 yield f"data: {_j.dumps({'type': 'token', 'text': token})}\n\n"
         except Exception as exc:
-            yield f"data: {_j.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            import traceback
+            traceback.print_exc()
+            yield f"data: {_j.dumps({'type': 'error', 'message': f'{type(exc).__name__}: {exc}'})}\n\n"
             return
 
         # Phase 2: score interest (non-fatal)

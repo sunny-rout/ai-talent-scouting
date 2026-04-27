@@ -44,7 +44,7 @@ class VertexProvider(LLMProvider):
         cfg = GenerationConfig(temperature=temperature, max_output_tokens=700)
 
         # Vertex streaming is synchronous — run in executor
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: model.generate_content(prompt, generation_config=cfg, stream=True),
