@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.config import LLM_PROVIDER, OLLAMA_MODEL
+from app.config import LLM_PROVIDER, default_model_for
 from app.db import get_db
 from app.llm import get_provider
 from app.models import (
@@ -46,7 +46,7 @@ class AppState:
         self.conversations: dict[str, ConversationResult] = conversations or {}
         self.shortlist: list[ShortlistEntry] = shortlist or []
         self.llm_provider = llm_provider or LLM_PROVIDER
-        self.llm_model = llm_model or OLLAMA_MODEL
+        self.llm_model = llm_model or default_model_for(self.llm_provider)
 
     # ── LLM accessor ───────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ class AppState:
             match_results=restored_matches,
             conversations=conversations,
             llm_provider=s.get("llm_provider", LLM_PROVIDER),
-            llm_model=s.get("llm_model", OLLAMA_MODEL),
+            llm_model=s.get("llm_model") or default_model_for(s.get("llm_provider", LLM_PROVIDER)),
         )
 
         print(

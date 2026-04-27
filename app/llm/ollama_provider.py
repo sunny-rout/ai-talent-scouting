@@ -1,11 +1,14 @@
-import requests
-from typing import List, Dict
-from .base import LLMProvider
 import time
+from typing import AsyncGenerator, List, Dict
+
 import httpx
+import requests
+
+from .base import LLMProvider
+
 
 class OllamaProvider(LLMProvider):
-    def __init__(self, base_url="http://localhost:11434", model="llama3"):
+    def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3"):
         self.base_url = base_url.rstrip("/")
         self.model = model
 
@@ -19,8 +22,27 @@ class OllamaProvider(LLMProvider):
         resp = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=120)
         resp.raise_for_status()
         return resp.json()["message"]["content"]
-    
-    # ── health_check ──────────────────────────────────────────────────────────
+
+    async def stream_chat(
+        self, messages: List[Dict[str, str]], temperature: float = 0.7
+    ) -> AsyncGenerator[str, None]:
+        # Use Ollama's OpenAI-compatible endpoint for reliable streaming
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(
+            base_url=f"{self.base_url}/v1",
+            api_key="ollama",
+        )
+        stream = await client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=700,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
 
     def health_check(self) -> dict:
         base = {"provider": "ollama", "model": self.model}
